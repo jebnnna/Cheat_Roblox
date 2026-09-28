@@ -12,16 +12,17 @@ local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Humanoid = Character:WaitForChild("Humanoid")
 local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
--- State
+-- State Table
 local State = {
-    Speed = false,
-    InfJump = false,
-    Fly = false,
-    NoClip = false,
-    ESP = false,
-    AntiAFK = false,
-    SpeedValue = 50,
-    FlySpeed = 60,
+	Speed = false,
+	InfJump = false,
+	JumpTP = false, -- <--- ADD THIS LINE
+	Fly = false,
+	NoClip = false,
+	ESP = false,
+	AntiAFK = false,
+	SpeedValue = 50,
+	FlySpeed = 60,
 }
 
 -- GUI Setup
@@ -244,6 +245,40 @@ CreateToggle("Infinite Jump", "InfJump", function(on)
     else
         if jumpConn then jumpConn:Disconnect() jumpConn = nil end
     end
+end)
+
+-- JUMP TELEPORT TO RANDOM PLAYER BEHIND
+local jumpTpConn
+CreateToggle("Jump TP Behind Player", "JumpTP", function(on)
+	if on then
+		jumpTpConn = UserInputService.JumpRequest:Connect(function()
+			local _, _, root = getCharacterInfo()
+			if not root then return end
+
+			-- Gather alive players in the game (excluding yourself)
+			local targets = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer and player.Character then
+					local targetRoot = player.Character:FindFirstChild("HumanoidRootPart")
+					local targetHum = player.Character:FindFirstChildOfClass("Humanoid")
+					if targetRoot and targetHum and targetHum.Health > 0 then
+						table.insert(targets, targetRoot)
+					end
+				end
+			end
+
+			-- Pick a random target and teleport 3 studs behind them
+			if #targets > 0 then
+				local randomTargetRoot = targets[math.random(1, #targets)]
+				root.CFrame = randomTargetRoot.CFrame * CFrame.new(0, 0, 3)
+			end
+		end)
+	else
+		if jumpTpConn then
+			jumpTpConn:Disconnect()
+			jumpTpConn = nil
+		end
+	end
 end)
 
 -- FLY
