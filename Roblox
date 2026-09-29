@@ -415,53 +415,26 @@ CreateToggle("Anti-AFK", "AntiAFK", function(on)
     end
 end)
 
-State.TouchLaunch = false
-local launchConn
-local launchedTargets = {}
-
+local touchLaunchConn
 CreateToggle("Launch on Touch", "TouchLaunch", function(on)
     if on then
-        launchConn = RunService.Heartbeat:Connect(function()
+        touchLaunchConn = RunService.Heartbeat:Connect(function()
             if not (Character and HumanoidRootPart) then return end
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
-                    local r = plr.Character:FindFirstChild("HumanoidRootPart")
-                    local h = plr.Character:FindFirstChildOfClass("Humanoid")
-                    if r and h and (r.Position - HumanoidRootPart.Position).Magnitude < 5 then
-                        if not launchedTargets[plr.Name] then
-                            launchedTargets[plr.Name] = true
-                            local dir = (r.Position - HumanoidRootPart.Position)
-                            local launchDir = Vector3.new(dir.X, 0, dir.Z)
-                            if launchDir.Magnitude > 0 then
-                                launchDir = launchDir.Unit
-                            else
-                                launchDir = Vector3.new(0, 0, 1)
-                            end
-
-                            pcall(function()
-                                r.AssemblyLinearVelocity = (launchDir * 130) + Vector3.new(0, 80, 0)
-                            end)
-
-                            pcall(function()
-                                local bv = Instance.new("BodyVelocity")
-                                bv.Velocity = (launchDir * 130) + Vector3.new(0, 80, 0)
-                                bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                bv.P = math.huge
-                                bv.Parent = r
-                                game:GetService("Debris"):AddItem(bv, 0.2)
-                            end)
-
-                            task.delay(1.5, function()
-                                launchedTargets[plr.Name] = nil
-                            end)
-                        end
+                    local root = plr.Character:FindFirstChild("HumanoidRootPart")
+                    if root and (root.Position - HumanoidRootPart.Position).Magnitude < 5 then
+                        local bv = Instance.new("BodyVelocity")
+                        bv.Velocity = (root.Position - HumanoidRootPart.Position).Unit * 120 + Vector3.new(0, 60, 0)
+                        bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+                        bv.Parent = root
+                        game:GetService("Debris"):AddItem(bv, 0.18)
                     end
                 end
             end
         end)
     else
-        if launchConn then launchConn:Disconnect() launchConn = nil end
-        launchedTargets = {}
+        if touchLaunchConn then touchLaunchConn:Disconnect() touchLaunchConn = nil end
     end
 end)
 
