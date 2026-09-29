@@ -415,22 +415,22 @@ CreateToggle("Anti-AFK", "AntiAFK", function(on)
     end
 end)
 
-S.TouchLaunch = false
+State.TouchLaunch = false
 local launchConn
 local launchedTargets = {}
 
-Toggle("Launch on Touch", "TouchLaunch",
-    function()
+CreateToggle("Launch on Touch", "TouchLaunch", function(on)
+    if on then
         launchConn = RunService.Heartbeat:Connect(function()
-            if not (Character and HRP) then return end
+            if not (Character and HumanoidRootPart) then return end
             for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LP and plr.Character then
+                if plr ~= LocalPlayer and plr.Character then
                     local r = plr.Character:FindFirstChild("HumanoidRootPart")
                     local h = plr.Character:FindFirstChildOfClass("Humanoid")
-                    if r and h and (r.Position - HRP.Position).Magnitude < 5 then
+                    if r and h and (r.Position - HumanoidRootPart.Position).Magnitude < 5 then
                         if not launchedTargets[plr.Name] then
                             launchedTargets[plr.Name] = true
-                            local dir = (r.Position - HRP.Position)
+                            local dir = (r.Position - HumanoidRootPart.Position)
                             local launchDir = Vector3.new(dir.X, 0, dir.Z)
                             if launchDir.Magnitude > 0 then
                                 launchDir = launchDir.Unit
@@ -459,12 +459,11 @@ Toggle("Launch on Touch", "TouchLaunch",
                 end
             end
         end)
-    end,
-    function()
+    else
         if launchConn then launchConn:Disconnect() launchConn = nil end
         launchedTargets = {}
     end
-)
+end)
 
 -- TELEPORT TO SPAWN
 local TpBtn = Instance.new("TextButton")
