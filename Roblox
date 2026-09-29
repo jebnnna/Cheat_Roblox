@@ -16,6 +16,7 @@ local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 local State = {
     Speed = false,
     InfJump = false,
+    JumpTp = false,
     Fly = false,
     NoClip = false,
     ESP = false,
@@ -239,8 +240,21 @@ local jumpConn
 CreateToggle("Infinite Jump", "InfJump", function(on)
     if on then
         jumpConn = UserInputService.JumpRequest:Connect(function()
+            if Humanoid then
+                Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    else
+        if jumpConn then jumpConn:Disconnect() jumpConn = nil end
+    end
+end)
+
+-- JUMP TELEPORT
+local jumpTpConn
+CreateToggle("Jump Teleport", "JumpTp", function(on)
+    if on then
+        jumpTpConn = UserInputService.JumpRequest:Connect(function()
             if not (Character and HumanoidRootPart) then return end
-            Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
             local targets = {}
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
@@ -252,11 +266,10 @@ CreateToggle("Infinite Jump", "InfJump", function(on)
             end
             if #targets == 0 then return end
             local pick = targets[math.random(1, #targets)]
-            local behind = pick.CFrame * CFrame.new(0, 0, 4)
-            HumanoidRootPart.CFrame = behind
+            HumanoidRootPart.CFrame = pick.CFrame * CFrame.new(0, 0, 4)
         end)
     else
-        if jumpConn then jumpConn:Disconnect() jumpConn = nil end
+        if jumpTpConn then jumpTpConn:Disconnect() jumpTpConn = nil end
     end
 end)
 
@@ -348,6 +361,18 @@ local function BuildESP()
                 bb.Adornee = rootPart
                 bb.Parent = espFolder
 
+                local glow = Instance.new("TextLabel")
+                glow.Text = player.Name
+                glow.Size = UDim2.new(1, 0, 1, 0)
+                glow.BackgroundTransparency = 1
+                glow.TextColor3 = Color3.fromRGB(255, 255, 255)
+                glow.TextTransparency = 0.6
+                glow.TextStrokeTransparency = 0
+                glow.Font = Enum.Font.GothamBold
+                glow.TextSize = 15
+                glow.ZIndex = 0
+                glow.Parent = bb
+
                 local lbl = Instance.new("TextLabel")
                 lbl.Text = player.Name
                 lbl.Size = UDim2.new(1, 0, 1, 0)
@@ -357,6 +382,7 @@ local function BuildESP()
                 lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
                 lbl.Font = Enum.Font.GothamBold
                 lbl.TextSize = 13
+                lbl.ZIndex = 1
                 lbl.Parent = bb
             end
         end
@@ -433,7 +459,7 @@ TpStroke.Thickness = 1
 TpStroke.Parent = TpBtn
 
 local TpLabel = Instance.new("TextLabel")
-TpLabel.Text = "⚡  Teleport to Spawn"
+TpLabel.Text = "Teleport to Spawn"
 TpLabel.Size = UDim2.new(1, 0, 1, 0)
 TpLabel.BackgroundTransparency = 1
 TpLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
@@ -452,28 +478,67 @@ TpBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ─── TELEPORT TO PLAYER BY NAME ───────────────────────────────
-local TpNameBox = Instance.new("TextBox")
-TpNameBox.Size = UDim2.new(0, 255, 0, 38)
-TpNameBox.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
-TpNameBox.BorderSizePixel = 0
-TpNameBox.PlaceholderText = "player name..."
-TpNameBox.PlaceholderColor3 = Color3.fromRGB(80, 80, 80)
-TpNameBox.TextColor3 = Color3.fromRGB(220, 220, 220)
-TpNameBox.TextSize = 12
-TpNameBox.Font = Enum.Font.Gotham
-TpNameBox.ClearTextOnFocus = false
-TpNameBox.Text = ""
-TpNameBox.Parent = ContentFrame
+-- ─── TELEPORT TO PLAYER ───────────────────────────────────────
+local SelectedPlayerName = ""
+local TpPlayerList = Instance.new("ScrollingFrame")
+TpPlayerList.Size = UDim2.new(0, 255, 0, 120)
+TpPlayerList.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+TpPlayerList.BorderSizePixel = 0
+TpPlayerList.ScrollBarThickness = 3
+TpPlayerList.CanvasSize = UDim2.new(0, 0, 0, 0)
+TpPlayerList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+TpPlayerList.Parent = ContentFrame
 
-local TpNameCorner = Instance.new("UICorner")
-TpNameCorner.CornerRadius = UDim.new(0, 10)
-TpNameCorner.Parent = TpNameBox
+local TpPlayerListCorner = Instance.new("UICorner")
+TpPlayerListCorner.CornerRadius = UDim.new(0, 8)
+TpPlayerListCorner.Parent = TpPlayerList
 
-local TpNameStroke = Instance.new("UIStroke")
-TpNameStroke.Color = Color3.fromRGB(55, 55, 55)
-TpNameStroke.Thickness = 1
-TpNameStroke.Parent = TpNameBox
+local TpPlayerListLayout = Instance.new("UIListLayout")
+TpPlayerListLayout.Padding = UDim.new(0, 0)
+TpPlayerListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TpPlayerListLayout.Parent = TpPlayerList
+
+local function RefreshPlayerList()
+    for _, child in ipairs(TpPlayerList:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+
+    local players = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        players[#players + 1] = plr
+    end
+    table.sort(players, function(a, b)
+        return a.Name < b.Name
+    end)
+
+    for _, plr in ipairs(players) do
+        local row = Instance.new("TextButton")
+        row.Size = UDim2.new(1, 0, 0, 36)
+        row.BackgroundColor3 = SelectedPlayerName == plr.Name and Color3.fromRGB(45, 45, 45) or Color3.fromRGB(10, 10, 10)
+        row.BorderSizePixel = 0
+        row.Text = plr.Name
+        row.TextColor3 = Color3.fromRGB(255, 255, 255)
+        row.TextSize = 12
+        row.Font = Enum.Font.Gotham
+        row.Parent = TpPlayerList
+
+        row.MouseButton1Click:Connect(function()
+            SelectedPlayerName = plr.Name
+            RefreshPlayerList()
+        end)
+    end
+end
+
+RefreshPlayerList()
+ContentFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+    if ContentFrame.Visible then
+        RefreshPlayerList()
+    end
+end)
+Players.PlayerAdded:Connect(RefreshPlayerList)
+Players.PlayerRemoving:Connect(RefreshPlayerList)
 
 local TpPlayerBtn = Instance.new("TextButton")
 TpPlayerBtn.Name = "TeleportPlayer"
@@ -494,7 +559,7 @@ TpPlayerStroke.Thickness = 1
 TpPlayerStroke.Parent = TpPlayerBtn
 
 local TpPlayerLbl = Instance.new("TextLabel")
-TpPlayerLbl.Text = "→  Teleport to Player"
+TpPlayerLbl.Text = "Teleport to Player"
 TpPlayerLbl.Size = UDim2.new(1, 0, 1, 0)
 TpPlayerLbl.BackgroundTransparency = 1
 TpPlayerLbl.TextColor3 = Color3.fromRGB(210, 210, 210)
@@ -505,10 +570,9 @@ TpPlayerLbl.Parent = TpPlayerBtn
 TpPlayerBtn.MouseButton1Click:Connect(function()
     Character = LocalPlayer.Character
     HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
-    if not HumanoidRootPart then return end
-    local name = TpNameBox.Text:lower()
+    if not HumanoidRootPart or SelectedPlayerName == "" then return end
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr.Name:lower():find(name) and plr ~= LocalPlayer and plr.Character then
+        if plr.Name == SelectedPlayerName and plr ~= LocalPlayer and plr.Character then
             local root = plr.Character:FindFirstChild("HumanoidRootPart")
             if root then
                 HumanoidRootPart.CFrame = root.CFrame * CFrame.new(0, 0, 3)
@@ -516,6 +580,67 @@ TpPlayerBtn.MouseButton1Click:Connect(function()
             end
         end
     end
+end)
+
+-- ─── COORDINATE TELEPORT ──────────────────────────────────────
+local CoordBox = Instance.new("TextBox")
+CoordBox.Size = UDim2.new(0, 255, 0, 38)
+CoordBox.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+CoordBox.BorderSizePixel = 0
+CoordBox.PlaceholderText = "120, 5, -30"
+CoordBox.PlaceholderColor3 = Color3.fromRGB(80, 80, 80)
+CoordBox.TextColor3 = Color3.fromRGB(220, 220, 220)
+CoordBox.TextSize = 12
+CoordBox.Font = Enum.Font.Gotham
+CoordBox.ClearTextOnFocus = false
+CoordBox.Text = ""
+CoordBox.Parent = ContentFrame
+
+local CoordCorner = Instance.new("UICorner")
+CoordCorner.CornerRadius = UDim.new(0, 10)
+CoordCorner.Parent = CoordBox
+
+local CoordStroke = Instance.new("UIStroke")
+CoordStroke.Color = Color3.fromRGB(55, 55, 55)
+CoordStroke.Thickness = 1
+CoordStroke.Parent = CoordBox
+
+local CoordBtn = Instance.new("TextButton")
+CoordBtn.Size = UDim2.new(0, 255, 0, 40)
+CoordBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+CoordBtn.BorderSizePixel = 0
+CoordBtn.AutoButtonColor = false
+CoordBtn.Text = "Teleport to Coords"
+CoordBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
+CoordBtn.TextSize = 13
+CoordBtn.Font = Enum.Font.GothamBold
+CoordBtn.Parent = ContentFrame
+
+local CoordBtnCorner = Instance.new("UICorner")
+CoordBtnCorner.CornerRadius = UDim.new(0, 10)
+CoordBtnCorner.Parent = CoordBtn
+
+local CoordBtnStroke = Instance.new("UIStroke")
+CoordBtnStroke.Color = Color3.fromRGB(55, 55, 55)
+CoordBtnStroke.Thickness = 1
+CoordBtnStroke.Parent = CoordBtn
+
+CoordBtn.MouseButton1Click:Connect(function()
+    Character = LocalPlayer.Character
+    HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not HumanoidRootPart then return end
+    local text = CoordBox.Text
+    local values = {}
+    for num in string.gmatch(text, "[-%d%.]+") do
+        values[#values + 1] = tonumber(num)
+    end
+    if #values ~= 3 or not values[1] or not values[2] or not values[3] then
+        if Console then
+            Console.Text = "> invalid coords"
+        end
+        return
+    end
+    HumanoidRootPart.CFrame = CFrame.new(values[1], values[2], values[3])
 end)
 
 -- ─── POSITION CONSOLE ─────────────────────────────────────────
@@ -561,7 +686,7 @@ PosStroke.Thickness = 1
 PosStroke.Parent = PosBtn
 
 local PosLbl = Instance.new("TextLabel")
-PosLbl.Text = "⊹  Get My Position"
+PosLbl.Text = "Get My Position"
 PosLbl.Size = UDim2.new(1, 0, 1, 0)
 PosLbl.BackgroundTransparency = 1
 PosLbl.TextColor3 = Color3.fromRGB(210, 210, 210)
@@ -632,6 +757,8 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     -- Reset active states that depend on character parts
     State.Fly = false
     State.NoClip = false
+    State.JumpTp = false
+    if jumpTpConn then jumpTpConn:Disconnect() jumpTpConn = nil end
     if flyConn then flyConn:Disconnect() flyConn = nil end
     if flyBV then flyBV:Destroy() flyBV = nil end
     if flyBG then flyBG:Destroy() flyBG = nil end
