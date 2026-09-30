@@ -22,8 +22,9 @@ local State = {
     ESP = false,
     AntiAFK = false,
     TouchLaunch = false,
-    SpeedValue = 50,
-    FlySpeed = 60,
+    LastPos = nil,
+    SpeedValue = 60,
+    FlySpeed = 55,
 }
 
 -- GUI Setup
@@ -221,6 +222,32 @@ end
 -- SPEED
 CreateSection("  MOVEMENT")
 
+local speedInput = Instance.new("TextBox")
+speedInput.Size = UDim2.new(0, 248, 0, 36)
+speedInput.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+speedInput.BorderSizePixel = 0
+speedInput.PlaceholderText = "speed value (default 60)"
+speedInput.PlaceholderColor3 = Color3.fromRGB(75, 75, 75)
+speedInput.TextColor3 = Color3.fromRGB(210, 210, 210)
+speedInput.TextSize = 12
+speedInput.Font = Enum.Font.Gotham
+speedInput.ClearTextOnFocus = false
+speedInput.Text = ""
+speedInput.Parent = ContentFrame
+
+local speedInputCorner = Instance.new("UICorner")
+speedInputCorner.CornerRadius = UDim.new(0, 10)
+speedInputCorner.Parent = speedInput
+
+local speedInputStroke = Instance.new("UIStroke")
+speedInputStroke.Color = Color3.fromRGB(50, 50, 50)
+speedInputStroke.Parent = speedInput
+
+speedInput:GetPropertyChangedSignal("Text"):Connect(function()
+    local value = tonumber(speedInput.Text)
+    State.SpeedValue = value and math.clamp(value, 1, 500) or 60
+end)
+
 local speedConn
 CreateToggle("Speed Hack", "Speed", function(on)
     if on then
@@ -275,6 +302,33 @@ end)
 
 -- FLY
 local flyConn, flyBV, flyBG
+
+local flyInput = Instance.new("TextBox")
+flyInput.Size = UDim2.new(0, 248, 0, 36)
+flyInput.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+flyInput.BorderSizePixel = 0
+flyInput.PlaceholderText = "fly speed value (default 55)"
+flyInput.PlaceholderColor3 = Color3.fromRGB(75, 75, 75)
+flyInput.TextColor3 = Color3.fromRGB(210, 210, 210)
+flyInput.TextSize = 12
+flyInput.Font = Enum.Font.Gotham
+flyInput.ClearTextOnFocus = false
+flyInput.Text = ""
+flyInput.Parent = ContentFrame
+
+local flyInputCorner = Instance.new("UICorner")
+flyInputCorner.CornerRadius = UDim.new(0, 10)
+flyInputCorner.Parent = flyInput
+
+local flyInputStroke = Instance.new("UIStroke")
+flyInputStroke.Color = Color3.fromRGB(50, 50, 50)
+flyInputStroke.Parent = flyInput
+
+flyInput:GetPropertyChangedSignal("Text"):Connect(function()
+    local value = tonumber(flyInput.Text)
+    State.FlySpeed = value and math.clamp(value, 1, 300) or 55
+end)
+
 CreateToggle("Fly", "Fly", function(on)
     Character = LocalPlayer.Character
     HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
@@ -702,6 +756,47 @@ PosBtn.MouseButton1Click:Connect(function()
     end
     local p = HumanoidRootPart.Position
     Console.Text = string.format("> X: %.1f\n> Y: %.1f\n> Z: %.1f", p.X, p.Y, p.Z)
+    State.LastPos = p
+end)
+
+local LastPosBtn = Instance.new("TextButton")
+LastPosBtn.Size = UDim2.new(0, 248, 0, 40)
+LastPosBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+LastPosBtn.BorderSizePixel = 0
+LastPosBtn.AutoButtonColor = false
+LastPosBtn.Text = ""
+LastPosBtn.Parent = ContentFrame
+
+local LastPosCorner = Instance.new("UICorner")
+LastPosCorner.CornerRadius = UDim.new(0, 10)
+LastPosCorner.Parent = LastPosBtn
+
+local LastPosStroke = Instance.new("UIStroke")
+LastPosStroke.Color = Color3.fromRGB(50, 50, 50)
+LastPosStroke.Parent = LastPosBtn
+
+local LastPosLbl = Instance.new("TextLabel")
+LastPosLbl.Text = "Teleport to Last Position"
+LastPosLbl.Size = UDim2.new(1, 0, 1, 0)
+LastPosLbl.BackgroundTransparency = 1
+LastPosLbl.TextColor3 = Color3.fromRGB(210, 210, 210)
+LastPosLbl.TextSize = 13
+LastPosLbl.Font = Enum.Font.GothamBold
+LastPosLbl.Parent = LastPosBtn
+
+LastPosBtn.MouseButton1Click:Connect(function()
+    Character = LocalPlayer.Character
+    HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not HumanoidRootPart then
+        Console.Text = "> no character"
+        return
+    end
+    if not State.LastPos then
+        Console.Text = "> no saved position\n> press Get My Position first"
+        return
+    end
+    HumanoidRootPart.CFrame = CFrame.new(State.LastPos)
+    Console.Text = string.format("> teleported to\n> X: %.1f  Y: %.1f  Z: %.1f", State.LastPos.X, State.LastPos.Y, State.LastPos.Z)
 end)
 
 -- ─── DRAG LOGIC ───────────────────────────────────────────────
