@@ -1,0 +1,411 @@
+-- language: Luau, file: FPS_Helper.lua
+-- executor: Synapse X / KRNL / Fluxus / Delta
+-- ESP via Highlight instance | Aimbot via WorldToViewportPoint crosshair lock + CFrame lerp
+
+local Players         = game:GetService("Players")
+local RunService      = game:GetService("RunService")
+local UserInputService= game:GetService("UserInputService")
+local Camera          = workspace.CurrentCamera
+local LocalPlayer     = Players.LocalPlayer
+
+-- ============================================================
+-- CONFIG
+-- ============================================================
+local Config = {
+    ESP = {
+        Enabled          = false,
+        FillColor        = Color3.fromRGB(255, 50,  50),
+        OutlineColor     = Color3.fromRGB(255, 255, 255),
+        FillTransp       = 0.5,
+        OutlineTransp    = 0,
+    },
+    Aimbot = {
+        Enabled    = false,
+        FOV        = 150,
+        Smooth     = 0.15,
+        HoldKey    = Enum.UserInputType.MouseButton2,
+        Bone       = "HumanoidRootPart",
+        TeamCheck  = false,
+    }
+}
+
+-- ============================================================
+-- ESP  (Highlight API — works on all executors post-2022)
+-- ============================================================
+local ESPHighlights = {}
+
+local function CreateHighlight(char)
+    if ESPHighlights[char] then return end
+    local hl              = Instance.new("Highlight")
+    hl.FillColor          = Config.ESP.FillColor
+    hl.OutlineColor       = Config.ESP.OutlineColor
+    hl.FillTransparency   = Config.ESP.FillTransp
+    hl.OutlineTransparency= Config.ESP.OutlineTransp
+    hl.DepthMode          = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent             = char
+    ESPHighlights[char]   = hl
+end
+
+local function RemoveHighlight(char)
+    if ESPHighlights[char] then
+        ESPHighlights[char]:Destroy()
+        ESPHighlights[char] = nil
+    end
+end
+
+RunService.Heartbeat:Connect(function()
+    -- apply / update
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local char = plr.Character
+            if Config.ESP.Enabled then
+                CreateHighlight(char)
+                local hl = ESPHighlights[char]
+                if hl then
+                    hl.FillColor           = Config.ESP.FillColor
+                    hl.OutlineColor        = Config.ESP.OutlineColor
+                    hl.FillTransparency    = Config.ESP.FillTransp
+                    hl.OutlineTransparency = Config.ESP.OutlineTransp
+                end
+            else
+                RemoveHighlight(char)
+            end
+        end
+    end
+    -- purge stale refs
+    for char in pairs(ESPHighlights) do
+        if not char.Parent then RemoveHighlight(char) end
+    end
+end)
+
+-- ============================================================
+-- AIMBOT
+-- ============================================================
+local function GetClosestTarget()
+    local vCenter = Camera.ViewportSize / 2
+    local bestDist, bestBone = Config.Aimbot.FOV, nil
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer or not plr.Character then continue end
+        if Config.Aimbot.TeamCheck and plr.Team == LocalPlayer.Team then continue end
+
+        local char     = plr.Character
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        local bone     = char:FindFirstChild(Config.Aimbot.Bone)
+
+        if humanoid and humanoid.Health > 0 and bone then
+            local screenPos, onScreen = Camera:WorldToViewportPoint(bone.Position)
+            if onScreen then
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - vCenter).Magnitude
+                if dist < bestDist then
+                    bestDist = dist
+                    bestBone = bone
+                end
+            end
+        end
+    end
+    return bestBone
+end
+
+RunService.RenderStepped:Connect(function()
+    if not Config.Aimbot.Enabled then return end
+    if not UserInputService:IsMouseButtonPressed(Config.Aimbot.HoldKey) then return end
+    local target = GetClosestTarget()
+    if target then
+        local goal = CFrame.new(Camera.CFrame.Position, target.Position)
+        Camera.CFrame = Camera.CFrame:Lerp(goal, Config.Aimbot.Smooth)
+    end
+end)
+
+-- ============================================================
+-- UI
+-- ============================================================
+if LocalPlayer.PlayerGui:FindFirstChild("FPS_Helper_GUI") then
+    LocalPlayer.PlayerGui.FPS_Helper_GUI:Destroy()
+end
+
+local ScreenGui          = Instance.new("ScreenGui")
+ScreenGui.Name           = "FPS_Helper_GUI"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent         = LocalPlayer.PlayerGui
+
+-- ── Main Frame ───────────────────────────────────────────────
+local Main = Instance.new("Frame")
+Main.Size            = UDim2.new(0, 290, 0, 390)
+Main.Position        = UDim2.new(0, 80, 0, 80)
+Main.BackgroundColor3= Color3.fromRGB(13, 13, 20)
+Main.BorderSizePixel = 0
+Main.Parent          = ScreenGui
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+
+-- drop shadow simulation (dark outer frame)
+local Shadow = Instance.new("Frame")
+Shadow.Size            = UDim2.new(1, 10, 1, 10)
+Shadow.Position        = UDim2.new(0, -5, 0, -5)
+Shadow.BackgroundColor3= Color3.fromRGB(0, 0, 0)
+Shadow.BackgroundTransparency = 0.6
+Shadow.BorderSizePixel = 0
+Shadow.ZIndex          = Main.ZIndex - 1
+Shadow.Parent          = Main
+Instance.new("UICorner", Shadow).CornerRadius = UDim.new(0, 14)
+
+-- ── Title Bar ─────────────────────────────────────────────────
+local TBar = Instance.new("Frame")
+TBar.Size            = UDim2.new(1, 0, 0, 38)
+TBar.BackgroundColor3= Color3.fromRGB(0, 175, 220)
+TBar.BorderSizePixel = 0
+TBar.Parent          = Main
+Instance.new("UICorner", TBar).CornerRadius = UDim.new(0, 10)
+
+-- fill bottom-corner gap on titlebar
+local TBarFix = Instance.new("Frame")
+TBarFix.Size            = UDim2.new(1, 0, 0, 10)
+TBarFix.Position        = UDim2.new(0, 0, 1, -10)
+TBarFix.BackgroundColor3= Color3.fromRGB(0, 175, 220)
+TBarFix.BorderSizePixel = 0
+TBarFix.Parent          = TBar
+
+local TLabel = Instance.new("TextLabel")
+TLabel.Size               = UDim2.new(1, -12, 1, 0)
+TLabel.Position           = UDim2.new(0, 12, 0, 0)
+TLabel.BackgroundTransparency = 1
+TLabel.Text               = "⚡  FPS Helper"
+TLabel.TextColor3         = Color3.fromRGB(255, 255, 255)
+TLabel.TextSize           = 15
+TLabel.Font               = Enum.Font.GothamBold
+TLabel.TextXAlignment     = Enum.TextXAlignment.Left
+TLabel.Parent             = TBar
+
+-- sub-title
+local SubLabel = Instance.new("TextLabel")
+SubLabel.Size               = UDim2.new(1, -12, 0, 14)
+SubLabel.Position           = UDim2.new(0, 14, 0, 42)
+SubLabel.BackgroundTransparency = 1
+SubLabel.Text               = "ESP  •  AIMBOT"
+SubLabel.TextColor3         = Color3.fromRGB(0, 175, 220)
+SubLabel.TextSize           = 10
+SubLabel.Font               = Enum.Font.GothamBold
+SubLabel.TextXAlignment     = Enum.TextXAlignment.Left
+SubLabel.LetterSpacing      = 4
+SubLabel.Parent             = Main
+
+-- ── Drag ──────────────────────────────────────────────────────
+local dragging, dStart, dOrigin
+TBar.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dStart   = i.Position
+        dOrigin  = Main.Position
+    end
+end)
+TBar.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+UserInputService.InputChanged:Connect(function(i)
+    if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+        local d = i.Position - dStart
+        Main.Position = UDim2.new(
+            dOrigin.X.Scale, dOrigin.X.Offset + d.X,
+            dOrigin.Y.Scale, dOrigin.Y.Offset + d.Y
+        )
+    end
+end)
+
+-- ── Helpers ───────────────────────────────────────────────────
+local function Divider(yOff)
+    local d = Instance.new("Frame")
+    d.Size            = UDim2.new(1, -20, 0, 1)
+    d.Position        = UDim2.new(0, 10, 0, yOff)
+    d.BackgroundColor3= Color3.fromRGB(25, 25, 40)
+    d.BorderSizePixel = 0
+    d.Parent          = Main
+end
+
+local function SectionLabel(txt, yOff)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size               = UDim2.new(1, -20, 0, 16)
+    lbl.Position           = UDim2.new(0, 10, 0, yOff)
+    lbl.BackgroundTransparency = 1
+    lbl.Text               = txt
+    lbl.TextColor3         = Color3.fromRGB(0, 175, 220)
+    lbl.TextSize           = 10
+    lbl.Font               = Enum.Font.GothamBold
+    lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    lbl.LetterSpacing      = 3
+    lbl.Parent             = Main
+end
+
+local function Toggle(labelTxt, yOff, initVal, cb)
+    local btn = Instance.new("TextButton")
+    btn.Size            = UDim2.new(1, -20, 0, 34)
+    btn.Position        = UDim2.new(0, 10, 0, yOff)
+    btn.BackgroundColor3= initVal and Color3.fromRGB(0, 145, 185) or Color3.fromRGB(22, 22, 35)
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
+    btn.Text            = ""
+    btn.Parent          = Main
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
+
+    -- left accent strip
+    local strip = Instance.new("Frame")
+    strip.Size            = UDim2.new(0, 3, 0.6, 0)
+    strip.Position        = UDim2.new(0, 0, 0.2, 0)
+    strip.BackgroundColor3= initVal and Color3.fromRGB(255,255,255) or Color3.fromRGB(50,50,70)
+    strip.BorderSizePixel = 0
+    strip.Parent          = btn
+    Instance.new("UICorner", strip).CornerRadius = UDim.new(1,0)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size               = UDim2.new(1, -50, 1, 0)
+    lbl.Position           = UDim2.new(0, 16, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text               = labelTxt
+    lbl.TextColor3         = Color3.fromRGB(210, 210, 225)
+    lbl.TextSize           = 13
+    lbl.Font               = Enum.Font.Gotham
+    lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    lbl.Parent             = btn
+
+    -- pill indicator (right side)
+    local pill = Instance.new("Frame")
+    pill.Size            = UDim2.new(0, 30, 0, 14)
+    pill.Position        = UDim2.new(1, -40, 0.5, -7)
+    pill.BackgroundColor3= initVal and Color3.fromRGB(0,230,100) or Color3.fromRGB(60,60,80)
+    pill.BorderSizePixel = 0
+    pill.Parent          = btn
+    Instance.new("UICorner", pill).CornerRadius = UDim.new(1,0)
+
+    local dot = Instance.new("Frame")
+    dot.Size            = UDim2.new(0, 10, 0, 10)
+    dot.Position        = initVal and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5)
+    dot.BackgroundColor3= Color3.fromRGB(255,255,255)
+    dot.BorderSizePixel = 0
+    dot.Parent          = pill
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1,0)
+
+    local state = initVal
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.BackgroundColor3 = state and Color3.fromRGB(0,145,185) or Color3.fromRGB(22,22,35)
+        strip.BackgroundColor3= state and Color3.fromRGB(255,255,255) or Color3.fromRGB(50,50,70)
+        pill.BackgroundColor3 = state and Color3.fromRGB(0,230,100) or Color3.fromRGB(60,60,80)
+        dot.Position          = state and UDim2.new(1,-12,0.5,-5) or UDim2.new(0,2,0.5,-5)
+        cb(state)
+    end)
+    return btn
+end
+
+local function Slider(labelTxt, yOff, minV, maxV, def, cb)
+    local wrap = Instance.new("Frame")
+    wrap.Size            = UDim2.new(1, -20, 0, 48)
+    wrap.Position        = UDim2.new(0, 10, 0, yOff)
+    wrap.BackgroundColor3= Color3.fromRGB(18, 18, 28)
+    wrap.BorderSizePixel = 0
+    wrap.Parent          = Main
+    Instance.new("UICorner", wrap).CornerRadius = UDim.new(0, 7)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size               = UDim2.new(0.6, 0, 0, 22)
+    lbl.Position           = UDim2.new(0, 10, 0, 4)
+    lbl.BackgroundTransparency = 1
+    lbl.Text               = labelTxt
+    lbl.TextColor3         = Color3.fromRGB(180, 180, 200)
+    lbl.TextSize           = 12
+    lbl.Font               = Enum.Font.Gotham
+    lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    lbl.Parent             = wrap
+
+    local valLbl = Instance.new("TextLabel")
+    valLbl.Size               = UDim2.new(0.4, -10, 0, 22)
+    valLbl.Position           = UDim2.new(0.6, 0, 0, 4)
+    valLbl.BackgroundTransparency = 1
+    valLbl.Text               = tostring(def)
+    valLbl.TextColor3         = Color3.fromRGB(0,175,220)
+    valLbl.TextSize           = 12
+    valLbl.Font               = Enum.Font.GothamBold
+    valLbl.TextXAlignment     = Enum.TextXAlignment.Right
+    valLbl.Parent             = wrap
+
+    local track = Instance.new("Frame")
+    track.Size            = UDim2.new(1, -20, 0, 5)
+    track.Position        = UDim2.new(0, 10, 0, 33)
+    track.BackgroundColor3= Color3.fromRGB(30,30,48)
+    track.BorderSizePixel = 0
+    track.Parent          = wrap
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1,0)
+
+    local pct = (def - minV) / (maxV - minV)
+
+    local fill = Instance.new("Frame")
+    fill.Size            = UDim2.new(pct, 0, 1, 0)
+    fill.BackgroundColor3= Color3.fromRGB(0,175,220)
+    fill.BorderSizePixel = 0
+    fill.Parent          = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1,0)
+
+    local knob = Instance.new("Frame")
+    knob.Size            = UDim2.new(0,13,0,13)
+    knob.Position        = UDim2.new(pct,-6.5,0.5,-6.5)
+    knob.BackgroundColor3= Color3.fromRGB(255,255,255)
+    knob.BorderSizePixel = 0
+    knob.ZIndex          = 4
+    knob.Parent          = track
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1,0)
+
+    local sliding = false
+    knob.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = true end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if sliding and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local ax   = track.AbsolutePosition.X
+            local aw   = track.AbsoluteSize.X
+            local rel  = math.clamp((i.Position.X - ax) / aw, 0, 1)
+            local val  = math.floor(minV + (maxV - minV) * rel)
+            fill.Size       = UDim2.new(rel, 0, 1, 0)
+            knob.Position   = UDim2.new(rel,-6.5,0.5,-6.5)
+            valLbl.Text     = tostring(val)
+            cb(val)
+        end
+    end)
+end
+
+-- ── Layout ────────────────────────────────────────────────────
+SectionLabel("ESP", 68)
+Toggle("Glow ESP  [Always On]", 87, false, function(v)
+    Config.ESP.Enabled = v
+end)
+
+Divider(130)
+SectionLabel("AIMBOT", 138)
+Toggle("Aimbot  [Hold  RMB]", 157, false, function(v)
+    Config.Aimbot.Enabled = v
+end)
+Toggle("Team Check", 199, false, function(v)
+    Config.Aimbot.TeamCheck = v
+end)
+
+Divider(242)
+SectionLabel("SETTINGS", 250)
+Slider("FOV  (px)", 268, 50, 500, 150, function(v)
+    Config.Aimbot.FOV = v
+end)
+Slider("Smooth", 322, 1, 30, 15, function(v)
+    Config.Aimbot.Smooth = v / 100   -- 1→0.01  15→0.15  30→0.30
+end)
+
+-- footer
+local foot = Instance.new("TextLabel")
+foot.Size               = UDim2.new(1, -20, 0, 16)
+foot.Position           = UDim2.new(0, 10, 1, -20)
+foot.BackgroundTransparency = 1
+foot.Text               = "FPS Helper  v1.0  •  jebnnna"
+foot.TextColor3         = Color3.fromRGB(35, 35, 55)
+foot.TextSize           = 10
+foot.Font               = Enum.Font.Gotham
+foot.TextXAlignment     = Enum.TextXAlignment.Center
+foot.Parent             = Main
