@@ -1,0 +1,68 @@
+-- language: Lua, file: delta_v2.lua, target: Delta Executor
+-- key pattern: FREE_[hex32] — spoof + brute storage scan
+
+-- safe print wrapper (some executors need warn() instead)
+local out = printconsole or print or warn
+
+-- [1] write the known key to every likely path Delta reads
+local key = "FREE_f6c01d79ec2bc381e9d9e556fe3be7f4"
+local write_paths = {
+    "delta_key.txt",
+    "key.txt",
+    "deltakey.txt",
+    "Delta/key.txt",
+    "config/key.txt"
+}
+
+out("[*] Writing key to storage paths...")
+for _, p in ipairs(write_paths) do
+    local ok, err = pcall(writefile, p, key)
+    if ok then
+        out("[+] Written: " .. p)
+    else
+        out("[-] Failed: " .. p .. " | " .. tostring(err))
+    end
+end
+
+-- [2] force-set key into global env
+getgenv().DELTA_KEY    = key
+getgenv().deltaKey     = key
+getgenv().KeySystem    = { Key = key, Valid = true, Status = "active" }
+getgenv().KeyValid     = true
+getgenv().IsKeyValid   = function() return true end
+out("[+] Globals injected")
+
+-- [3] hook http if available
+local _req = request or (syn and syn.request) or http_request
+if _req then
+    local ok, _ = pcall(hookfunction, _req, function(opts)
+        local url = tostring(opts.Url or opts.url or ""):lower()
+        if url:find("delta") or url:find("key") or url:find("valid") or url:find("verify") then
+            out("[+] Hooked call: " .. url)
+            return {
+                StatusCode = 200,
+                Body = '{"success":true,"valid":true,"key":"' .. key .. '","status":"active"}',
+                Headers = {}
+            }
+        end
+        return _req(opts)
+    end)
+    if ok then
+        out("[+] HTTP hook active")
+    else
+        out("[-] hookfunction blocked — executor restriction")
+    end
+else
+    out("[-] No request function exposed")
+end
+
+-- [4] scan and dump what's actually in genv now
+out("[*] Global env dump (key/auth/delta matches):")
+for k, v in pairs(getgenv()) do
+    local s = tostring(k):lower()
+    if s:find("key") or s:find("valid") or s:find("auth") or s:find("delta") then
+        out(string.format("  [G] %s = %s", tostring(k), tostring(v)))
+    end
+end
+
+out("[*] Done.")
