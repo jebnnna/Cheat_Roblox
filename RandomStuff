@@ -1,4 +1,3 @@
--- build the GUI first
 local player = game:GetService("Players").LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
@@ -10,47 +9,43 @@ local sg = Instance.new("ScreenGui", pg)
 sg.ResetOnSpawn = false
 sg.Name = "VantaDebug"
 
-local frame = Instance.new("Frame", sg)
-frame.Size = UDim2.new(0.9, 0, 0.5, 0)
-frame.Position = UDim2.new(0.05, 0, 0.48, 0)
+local frame = Instance.new("ScrollingFrame", sg)
+frame.Size = UDim2.new(0.95, 0, 0.55, 0)
+frame.Position = UDim2.new(0.025, 0, 0.43, 0)
 frame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
 frame.BackgroundTransparency = 0.1
 frame.BorderSizePixel = 0
+frame.ScrollBarThickness = 6
+frame.CanvasSize = UDim2.new(0, 0, 5, 0)
 
 local label = Instance.new("TextLabel", frame)
-label.Size = UDim2.new(1, -10, 1, -10)
+label.Size = UDim2.new(1, -10, 5, 0)
 label.Position = UDim2.new(0, 5, 0, 5)
 label.BackgroundTransparency = 1
 label.TextColor3 = Color3.fromRGB(0, 255, 120)
-label.TextScaled = false
-label.TextSize = 16
+label.TextSize = 14
 label.Font = Enum.Font.Code
 label.TextXAlignment = Enum.TextXAlignment.Left
 label.TextYAlignment = Enum.TextYAlignment.Top
 label.TextWrapped = true
-label.Text = "HOOKED. RUNNING LOADER...\n"
+label.Text = "LOADSTRING HOOK ACTIVE\n"
 
 local function log(msg)
     label.Text = label.Text .. msg .. "\n"
 end
 
--- hook BEFORE loader runs
-local rh = game.HttpGet
-game.HttpGet = function(self, url, ...)
-    log("[REQ] " .. tostring(url):sub(1, 80))
-    local ok, res = pcall(rh, self, url, ...)
-    if not ok then
-        log("[ERR] " .. tostring(res))
-        return ""
-    end
-    -- catch the actual payload (not a loader file)
-    if url:find("luarmor") and not url:find("loader") then
-        log("[SOURCE CAUGHT]")
-        getgenv().__source = res
-        -- save first 300 chars to screen
-        log(tostring(res):sub(1, 300))
-    end
-    return res
+-- hook loadstring — fires with decrypted source
+local real_ls = loadstring
+getgenv().loadstring = function(src, ...)
+    log("[LOADSTRING FIRED] len=" .. #src)
+    -- save every chunk
+    local key = "chunk_" .. tostring(os.clock())
+    getgenv()[key] = src
+    log("[SAVED TO] getgenv()." .. key)
+    -- print first 200 chars to screen
+    log(tostring(src):sub(1, 200))
+    log("---")
+    return real_ls(src, ...)
 end
 
 -- now fire the loader
@@ -60,12 +55,5 @@ local ok, err = pcall(function()
 end)
 
 if not ok then
-    log("[LOADER DEAD] " .. tostring(err))
-end
-
-task.wait(5)
-if getgenv().__source then
-    log("[DONE] source saved to getgenv().__source")
-else
-    log("[NOTHING CAUGHT] key dead or payload URL pattern different")
+    log("[LOADER ERR] " .. tostring(err))
 end
