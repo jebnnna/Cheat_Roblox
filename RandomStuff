@@ -1,0 +1,75 @@
+-- full on-screen log, no console needed
+local player = game:GetService("Players").LocalPlayer
+local pg = player:WaitForChild("PlayerGui")
+
+-- build the display
+local sg = Instance.new("ScreenGui", pg)
+sg.ResetOnSpawn = false
+sg.Name = "VantaDebug"
+
+local frame = Instance.new("Frame", sg)
+frame.Size = UDim2.new(0.9, 0, 0.4, 0)
+frame.Position = UDim2.new(0.05, 0, 0.55, 0)
+frame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+frame.BackgroundTransparency = 0.2
+frame.BorderSizePixel = 0
+
+local label = Instance.new("TextLabel", frame)
+label.Size = UDim2.new(1, -10, 1, -10)
+label.Position = UDim2.new(0, 5, 0, 5)
+label.BackgroundTransparency = 1
+label.TextColor3 = Color3.fromRGB(0, 255, 120)
+label.TextScaled = true
+label.Font = Enum.Font.Code
+label.TextXAlignment = Enum.TextXAlignment.Left
+label.TextYAlignment = Enum.TextYAlignment.Top
+label.TextWrapped = true
+label.Text = "VANTA DEBUG READY\n"
+
+local function log(msg)
+    label.Text = label.Text .. "\n" .. msg
+end
+
+-- hook HttpGet
+local rh = game.HttpGet
+game.HttpGet = function(self, url, ...)
+    local ok, res = pcall(rh, self, url, ...)
+    if not ok then
+        log("[HTTP ERR] " .. tostring(res))
+        return ""
+    end
+    if url:find("luarmor") and not url:find("loader") then
+        log("[CAUGHT] " .. url:sub(1, 60))
+        getgenv().__payload = res
+    else
+        log("[REQ] " .. url:sub(1, 60))
+    end
+    return res
+end
+
+-- run the loader
+log("[KEY] injecting...")
+getgenv().script_key = "MShRRvuHmzJGmEKuNtpTwCLhEUVoHOXL"
+
+local ok2, err2 = pcall(function()
+    loadstring(game:HttpGet("https://api.luarmor.net/files/v4/loaders/2529a5f9dfddd5523ca4e22f21cceffa.lua"))()
+end)
+
+if not ok2 then
+    log("[LOADER ERR] " .. tostring(err2))
+end
+
+task.wait(5)
+
+if getgenv().__payload then
+    log("[PAYLOAD] running...")
+    local ok3, err3 = pcall(function()
+        loadstring(getgenv().__payload)()
+    end)
+    if not ok3 then
+        log("[PAYLOAD ERR] " .. tostring(err3))
+    end
+else
+    log("[DEAD] payload nil")
+    log("key burned or hwid locked")
+end
