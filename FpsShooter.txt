@@ -157,17 +157,17 @@ local function CreateToggle(name, state_key, callback)
 
     local function UpdateVisual()
         if State[state_key] then
-            Dot.BackgroundColor3  = Color3.fromRGB(230, 230, 230)
-            BtnStroke.Color       = Color3.fromRGB(210, 210, 210)
-            Btn.BackgroundColor3  = Color3.fromRGB(35, 35, 35)
-            StatusLabel.Text      = "ON"
-            StatusLabel.TextColor3= Color3.fromRGB(230, 230, 230)
+            Dot.BackgroundColor3   = Color3.fromRGB(230, 230, 230)
+            BtnStroke.Color        = Color3.fromRGB(210, 210, 210)
+            Btn.BackgroundColor3   = Color3.fromRGB(35, 35, 35)
+            StatusLabel.Text       = "ON"
+            StatusLabel.TextColor3 = Color3.fromRGB(230, 230, 230)
         else
-            Dot.BackgroundColor3  = Color3.fromRGB(60, 60, 70)
-            BtnStroke.Color       = Color3.fromRGB(55, 55, 55)
-            Btn.BackgroundColor3  = Color3.fromRGB(25, 20, 40)
-            StatusLabel.Text      = "OFF"
-            StatusLabel.TextColor3= Color3.fromRGB(120, 120, 120)
+            Dot.BackgroundColor3   = Color3.fromRGB(60, 60, 70)
+            BtnStroke.Color        = Color3.fromRGB(55, 55, 55)
+            Btn.BackgroundColor3   = Color3.fromRGB(25, 20, 40)
+            StatusLabel.Text       = "OFF"
+            StatusLabel.TextColor3 = Color3.fromRGB(120, 120, 120)
         end
     end
 
@@ -178,7 +178,7 @@ local function CreateToggle(name, state_key, callback)
     end)
 
     UpdateVisual()
-    ToggleRegistry[state_key] = UpdateVisual
+    ToggleRegistry[state_key] = { update = UpdateVisual, callback = callback }
     return Btn
 end
 
@@ -215,42 +215,7 @@ local function CreateInput(placeholder)
     return Box
 end
 
--- AIMBOT CORE
-local function GetClosestTarget()
-    local vCenter  = Camera.ViewportSize / 2
-    local bestDist = State.AimbotFOV
-    local bestBone = nil
-    local boneName = State.AimHead and "Head" or "HumanoidRootPart"
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr == LocalPlayer or not plr.Character then continue end
-        if State.TeamCheck and plr.Team == LocalPlayer.Team then continue end
-        local char = plr.Character
-        local hum  = char:FindFirstChildOfClass("Humanoid")
-        local bone = char:FindFirstChild(boneName)
-        if hum and hum.Health > 0 and bone then
-            local screenPos, onScreen = Camera:WorldToViewportPoint(bone.Position)
-            if onScreen then
-                local dist = (Vector2.new(screenPos.X, screenPos.Y) - vCenter).Magnitude
-                if dist < bestDist then
-                    bestDist = dist
-                    bestBone = bone
-                end
-            end
-        end
-    end
-    return bestBone
-end
-
-RunService.RenderStepped:Connect(function()
-    if not State.Aimbot then return end
-    local target = GetClosestTarget()
-    if target then
-        local goal = CFrame.new(Camera.CFrame.Position, target.Position)
-        Camera.CFrame = Camera.CFrame:Lerp(goal, State.AimbotSmooth)
-    end
-end)
-
--- ESP CORE
+-- ESP / HL CORE
 local espFolder, hlFolder
 
 local function ClearESP()
@@ -262,7 +227,7 @@ end
 
 local function BuildESP()
     ClearESP()
-    espFolder = Instance.new("Folder")
+    espFolder        = Instance.new("Folder")
     espFolder.Name   = "FPS_ESP"
     espFolder.Parent = workspace
     for _, player in ipairs(Players:GetPlayers()) do
@@ -305,30 +270,65 @@ end
 
 local function BuildHL()
     ClearHL()
-    hlFolder = Instance.new("Folder")
+    hlFolder        = Instance.new("Folder")
     hlFolder.Name   = "FPS_HL"
     hlFolder.Parent = workspace
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             local hl = Instance.new("Highlight")
-            hl.FillColor          = Color3.fromRGB(200, 100, 255)
-            hl.OutlineColor       = Color3.fromRGB(255, 255, 255)
-            hl.FillTransparency   = 0.6
-            hl.OutlineTransparency= 0
-            hl.DepthMode          = Enum.HighlightDepthMode.AlwaysOnTop
-            hl.Adornee            = player.Character
-            hl.Parent             = hlFolder
+            hl.FillColor           = Color3.fromRGB(200, 100, 255)
+            hl.OutlineColor        = Color3.fromRGB(255, 255, 255)
+            hl.FillTransparency    = 0.6
+            hl.OutlineTransparency = 0
+            hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Adornee             = player.Character
+            hl.Parent              = hlFolder
         end
     end
 end
 
 Players.PlayerAdded:Connect(function()
-    if State.ESP then BuildESP() end
-    if State.ESPGlow then BuildHL() end
+    if State.ESP     then BuildESP() end
+    if State.ESPGlow then BuildHL()  end
 end)
 Players.PlayerRemoving:Connect(function()
-    if State.ESP then BuildESP() end
-    if State.ESPGlow then BuildHL() end
+    if State.ESP     then BuildESP() end
+    if State.ESPGlow then BuildHL()  end
+end)
+
+-- AIMBOT CORE
+local function GetClosestTarget()
+    local vCenter  = Camera.ViewportSize / 2
+    local bestDist = State.AimbotFOV
+    local bestBone = nil
+    local boneName = State.AimHead and "Head" or "HumanoidRootPart"
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer or not plr.Character then continue end
+        if State.TeamCheck and plr.Team == LocalPlayer.Team then continue end
+        local char = plr.Character
+        local hum  = char:FindFirstChildOfClass("Humanoid")
+        local bone = char:FindFirstChild(boneName)
+        if hum and hum.Health > 0 and bone then
+            local screenPos, onScreen = Camera:WorldToViewportPoint(bone.Position)
+            if onScreen then
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - vCenter).Magnitude
+                if dist < bestDist then
+                    bestDist = dist
+                    bestBone = bone
+                end
+            end
+        end
+    end
+    return bestBone
+end
+
+RunService.RenderStepped:Connect(function()
+    if not State.Aimbot then return end
+    local target = GetClosestTarget()
+    if target then
+        local goal = CFrame.new(Camera.CFrame.Position, target.Position)
+        Camera.CFrame = Camera.CFrame:Lerp(goal, State.AimbotSmooth)
+    end
 end)
 
 -- FEATURE LAYOUT
@@ -346,8 +346,8 @@ smoothInput:GetPropertyChangedSignal("Text"):Connect(function()
     State.AimbotSmooth = v and math.clamp(v, 1, 20) / 100 or 0.08
 end)
 
-CreateToggle("Aimbot", "Aimbot", function(_) end)
-CreateToggle("Aim at Head", "AimHead", function(_) end)
+CreateToggle("Aimbot",     "Aimbot",    function(_) end)
+CreateToggle("Aim at Head","AimHead",   function(_) end)
 CreateToggle("Team Check", "TeamCheck", function(_) end)
 
 CreateSection("  VISUALS")
@@ -392,13 +392,13 @@ ScanStroke.Color     = Color3.fromRGB(55, 55, 55)
 ScanStroke.Thickness = 1
 ScanStroke.Parent    = ScanBtn
 local ScanLbl = Instance.new("TextLabel")
-ScanLbl.Text          = "Scan Nearest Target"
-ScanLbl.Size          = UDim2.new(1, 0, 1, 0)
+ScanLbl.Text                   = "Scan Nearest Target"
+ScanLbl.Size                   = UDim2.new(1, 0, 1, 0)
 ScanLbl.BackgroundTransparency = 1
-ScanLbl.TextColor3    = Color3.fromRGB(210, 210, 210)
-ScanLbl.TextSize      = 13
-ScanLbl.Font          = Enum.Font.GothamBold
-ScanLbl.Parent        = ScanBtn
+ScanLbl.TextColor3             = Color3.fromRGB(210, 210, 210)
+ScanLbl.TextSize               = 13
+ScanLbl.Font                   = Enum.Font.GothamBold
+ScanLbl.Parent                 = ScanBtn
 ScanBtn.MouseButton1Click:Connect(function()
     local bone = GetClosestTarget()
     if bone then
@@ -418,26 +418,26 @@ end)
 
 -- BACK TO MENU
 local BackBtn2 = Instance.new("TextButton")
-BackBtn2.Name            = "BackToMenu"
-BackBtn2.Size            = UDim2.new(0, 255, 0, 46)
-BackBtn2.BackgroundColor3= Color3.fromRGB(20, 15, 35)
-BackBtn2.BorderSizePixel = 0
-BackBtn2.AutoButtonColor = false
-BackBtn2.Text            = ""
-BackBtn2.Parent          = ContentFrame
+BackBtn2.Name             = "BackToMenu"
+BackBtn2.Size             = UDim2.new(0, 255, 0, 46)
+BackBtn2.BackgroundColor3 = Color3.fromRGB(20, 15, 35)
+BackBtn2.BorderSizePixel  = 0
+BackBtn2.AutoButtonColor  = false
+BackBtn2.Text             = ""
+BackBtn2.Parent           = ContentFrame
 Instance.new("UICorner", BackBtn2).CornerRadius = UDim.new(0, 10)
 local BackStroke2 = Instance.new("UIStroke")
 BackStroke2.Color     = Color3.fromRGB(80, 60, 110)
 BackStroke2.Thickness = 1
 BackStroke2.Parent    = BackBtn2
 local BackLbl2 = Instance.new("TextLabel")
-BackLbl2.Text             = "Back to Menu"
-BackLbl2.Size             = UDim2.new(1, 0, 1, 0)
+BackLbl2.Text                   = "Back to Menu"
+BackLbl2.Size                   = UDim2.new(1, 0, 1, 0)
 BackLbl2.BackgroundTransparency = 1
-BackLbl2.TextColor3       = Color3.fromRGB(180, 150, 220)
-BackLbl2.TextSize         = 13
-BackLbl2.Font             = Enum.Font.GothamBold
-BackLbl2.Parent           = BackBtn2
+BackLbl2.TextColor3             = Color3.fromRGB(180, 150, 220)
+BackLbl2.TextSize               = 13
+BackLbl2.Font                   = Enum.Font.GothamBold
+BackLbl2.Parent                 = BackBtn2
 BackBtn2.MouseButton1Click:Connect(function()
     ClearESP()
     ClearHL()
@@ -486,17 +486,18 @@ MinBtn.MouseButton1Click:Connect(function()
     ContentFrame.Visible = not minimized
 end)
 
--- DEATH RESET
+-- DEATH HANDLER — keep state, re-apply features
 LocalPlayer.CharacterAdded:Connect(function(char)
     Character        = char
     Humanoid         = char:WaitForChild("Humanoid")
     HumanoidRootPart = char:WaitForChild("HumanoidRootPart")
-    State.Aimbot     = false
-    State.AimHead    = false
-    State.TeamCheck  = false
-    State.ESP        = false
-    State.ESPGlow    = false
-    ClearESP()
-    ClearHL()
-    for _, updateFn in pairs(ToggleRegistry) do updateFn() end
+
+    -- refresh visuals that adorn character objects
+    if State.ESP     then BuildESP() end
+    if State.ESPGlow then BuildHL()  end
+
+    -- redraw all toggle visuals to match current State (no state reset)
+    for _, entry in pairs(ToggleRegistry) do
+        entry.update()
+    end
 end)
