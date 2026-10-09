@@ -1,297 +1,207 @@
+-- language: Luau, target: Delta Executor (or any executor with getgenv / fire)
+-- *Ninja Legends auto rank / best weapon / bells / sell / buy / pet + UI*
+-- *replace remote paths with live ones from SimpleSpy / Hydroxide*
 
 local Players = game:GetService("Players")
-local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
 
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+-- ── REMOTE PLACEHOLDERS (spy & replace) ─────────────────────
+local Remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage
+local RankUpRemote    = Remotes:FindFirstChild("RankUp") or Remotes:FindFirstChild("UpgradeRank")
+local BuyWeaponRemote = Remotes:FindFirstChild("BuyWeapon") or Remotes:FindFirstChild("PurchaseWeapon")
+local EquipWeapon     = Remotes:FindFirstChild("EquipWeapon") or Remotes:FindFirstChild("SelectWeapon")
+local SellRemote      = Remotes:FindFirstChild("Sell") or Remotes:FindFirstChild("SellAll")
+local BuyPetRemote    = Remotes:FindFirstChild("BuyPet") or Remotes:FindFirstChild("PurchasePet")
+local EquipPetRemote  = Remotes:FindFirstChild("EquipPet")
+local BuyBellRemote   = Remotes:FindFirstChild("BuyBell") or Remotes:FindFirstChild("PurchaseBell")
+local ClaimRemote     = Remotes:FindFirstChild("Claim") or Remotes:FindFirstChild("Collect")
 
-local settings = {
-    Swing = false,
-    Sell = false,
-    Rank = false,
-    Weapon = false,
-    Pet = false,
-    Bells = false,
+-- ── CONFIG ──────────────────────────────────────────────────
+local BEST_WEAPON_NAME = "Shadow Blade"   -- change to current top weapon
+local BEST_PET_NAME    = "OwnerDragon"    -- change to your pet name
+local SELL_INTERVAL    = 2.5
+local RANK_INTERVAL    = 1.2
+local WEAPON_INTERVAL  = 3.0
+local BELL_INTERVAL    = 4.0
+
+local Auto = {
+	Rank   = false,
+	Weapon = false,
+	Bells  = false,
+	Sell   = false,
+	Buy    = false,
+	Pet    = false,
 }
 
-local running = true
-local promptBusy = {}
-local lastSwing = 0
+-- ── UI ──────────────────────────────────────────────────────
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "NinjaDeltaUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
+if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
-local gui = Instance.new("ScreenGui")
-gui.Name = "NinjaAdmin"
-gui.ResetOnSpawn = false
-gui.Parent = playerGui
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.new(0, 260, 0, 340)
+Main.Position = UDim2.new(0, 20, 0.5, -170)
+Main.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+Main.BorderSizePixel = 0
+Main.Parent = ScreenGui
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
 
-local main = Instance.new("Frame")
-main.Size = UDim2.fromOffset(300, 390)
-main.Position = UDim2.new(0, 25, 0.3, 0)
-main.BackgroundColor3 = Color3.fromRGB(17, 17, 27)
-main.BorderSizePixel = 0
-main.Active = true
-main.Draggable = true
-main.Parent = gui
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 36)
+Title.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+Title.Text = "NINJA · DELTA AUTO"
+Title.TextColor3 = Color3.fromRGB(0, 220, 160)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 15
+Title.Parent = Main
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 12)
-corner.Parent = main
+local function makeToggle(name, y, key)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -24, 0, 32)
+	btn.Position = UDim2.new(0, 12, 0, y)
+	btn.BackgroundColor3 = Color3.fromRGB(40, 40, 52)
+	btn.Text = name .. "  [OFF]"
+	btn.TextColor3 = Color3.fromRGB(200, 200, 210)
+	btn.Font = Enum.Font.Gotham
+	btn.TextSize = 13
+	btn.Parent = Main
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(151, 78, 255)
-stroke.Thickness = 1.5
-stroke.Parent = main
-
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -20, 0, 42)
-title.Position = UDim2.fromOffset(12, 4)
-title.BackgroundTransparency = 1
-title.Text = "NINJA  /  CONTROL"
-title.TextColor3 = Color3.fromRGB(192, 139, 255)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 17
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = main
-
-local status = Instance.new("TextLabel")
-status.Size = UDim2.new(1, -24, 0, 24)
-status.Position = UDim2.fromOffset(12, 42)
-status.BackgroundTransparency = 1
-status.Text = "SYSTEM READY"
-status.TextColor3 = Color3.fromRGB(130, 220, 165)
-status.Font = Enum.Font.Gotham
-status.TextSize = 11
-status.TextXAlignment = Enum.TextXAlignment.Left
-status.Parent = main
-
-local content = Instance.new("Frame")
-content.Size = UDim2.new(1, -24, 0, 266)
-content.Position = UDim2.fromOffset(12, 76)
-content.BackgroundTransparency = 1
-content.Parent = main
-
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 7)
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.Parent = content
-
-local buttons = {}
-
-local function createToggle(key, label)
-    local button = Instance.new("TextButton")
-    button.Name = key
-    button.Size = UDim2.new(1, 0, 0, 36)
-    button.BackgroundColor3 = Color3.fromRGB(35, 35, 49)
-    button.BorderSizePixel = 0
-    button.Font = Enum.Font.GothamSemibold
-    button.TextSize = 12
-    button.Parent = content
-
-    local buttonCorner = Instance.new("UICorner")
-    buttonCorner.CornerRadius = UDim.new(0, 7)
-    buttonCorner.Parent = button
-
-    local function refresh()
-        local enabled = settings[key]
-        button.Text = label .. (enabled and "    [ ON ]" or "    [ OFF ]")
-        button.TextColor3 = enabled
-            and Color3.fromRGB(190, 255, 211)
-            or Color3.fromRGB(205, 205, 220)
-
-        button.BackgroundColor3 = enabled
-            and Color3.fromRGB(61, 37, 91)
-            or Color3.fromRGB(35, 35, 49)
-    end
-
-    button.Activated:Connect(function()
-        settings[key] = not settings[key]
-        refresh()
-    end)
-
-    buttons[key] = refresh
-    refresh()
+	btn.MouseButton1Click:Connect(function()
+		Auto[key] = not Auto[key]
+		btn.Text = name .. (Auto[key] and "  [ON]" or "  [OFF]")
+		btn.BackgroundColor3 = Auto[key] and Color3.fromRGB(0, 90, 70) or Color3.fromRGB(40, 40, 52)
+	end)
 end
 
-createToggle("Swing", "Auto Swing Equipped Tool")
-createToggle("Sell", "Auto Sell Prompts")
-createToggle("Rank", "Auto Rank Prompts")
-createToggle("Weapon", "Auto Weapon Prompts")
-createToggle("Pet", "Auto Pet / Egg Prompts")
-createToggle("Bells", "Auto Bell / Collection Prompts")
+makeToggle("Auto Rank",      48,  "Rank")
+makeToggle("Best Weapon",    88,  "Weapon")
+makeToggle("Auto Bells",     128, "Bells")
+makeToggle("Auto Sell",      168, "Sell")
+makeToggle("Auto Buy",       208, "Buy")
+makeToggle("Force Best Pet", 248, "Pet")
 
-local equipButton = Instance.new("TextButton")
-equipButton.Size = UDim2.new(1, 0, 0, 36)
-equipButton.BackgroundColor3 = Color3.fromRGB(105, 60, 175)
-equipButton.TextColor3 = Color3.new(1, 1, 1)
-equipButton.Text = "EQUIP BEST AVAILABLE TOOL"
-equipButton.Font = Enum.Font.GothamBold
-equipButton.TextSize = 11
-equipButton.Parent = main
-equipButton.Position = UDim2.new(0, 12, 1, -54)
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.new(1, -24, 0, 28)
+Status.Position = UDim2.new(0, 12, 1, -40)
+Status.BackgroundTransparency = 1
+Status.Text = "ready"
+Status.TextColor3 = Color3.fromRGB(120, 120, 140)
+Status.Font = Enum.Font.Gotham
+Status.TextSize = 12
+Status.Parent = Main
 
-local equipCorner = Instance.new("UICorner")
-equipCorner.CornerRadius = UDim.new(0, 7)
-equipCorner.Parent = equipButton
+-- drag
+local dragging, dragStart, startPos
+Main.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = Main.Position
+	end
+end)
+Main.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+end)
 
-local function getToolScore(tool)
-    local best = 0
-
-    for _, name in ipairs({
-        "Damage",
-        "Power",
-        "Level",
-        "Multiplier",
-    }) do
-        local attribute = tool:GetAttribute(name)
-        if typeof(attribute) == "number" then
-            best = math.max(best, attribute)
-        end
-
-        local value = tool:FindFirstChild(name)
-        if value and (
-            value:IsA("NumberValue")
-            or value:IsA("IntValue")
-        ) then
-            best = math.max(best, value.Value)
-        end
-    end
-
-    return best
+-- ── HELPERS ─────────────────────────────────────────────────
+local function safeFire(remote, ...)
+	if not remote then return end
+	pcall(function(...)
+		if remote:IsA("RemoteEvent") then
+			remote:FireServer(...)
+		elseif remote:IsA("RemoteFunction") then
+			remote:InvokeServer(...)
+		end
+	end, ...)
 end
 
-local function equipBestTool()
-    local character = player.Character
-    local backpack = player:FindFirstChildOfClass("Backpack")
-
-    if not character or not backpack then
-        status.Text = "Character or backpack unavailable"
-        return
-    end
-
-    local bestTool
-    local bestScore = -math.huge
-
-    for _, container in ipairs({backpack, character}) do
-        for _, item in ipairs(container:GetChildren()) do
-            if item:IsA("Tool") then
-                local score = getToolScore(item)
-
-                if score > bestScore then
-                    bestScore = score
-                    bestTool = item
-                end
-            end
-        end
-    end
-
-    if bestTool then
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid:EquipTool(bestTool)
-            status.Text = "Equipped: " .. bestTool.Name
-        end
-    else
-        status.Text = "No available tools found"
-    end
+local function setStatus(t)
+	Status.Text = t
 end
 
-equipButton.Activated:Connect(equipBestTool)
-
-local function getPromptCategory(prompt)
-    local name = prompt.Name:lower()
-
-    if name:find("sell") then
-        return "Sell"
-    elseif name:find("rank") or name:find("rebirth") then
-        return "Rank"
-    elseif name:find("weapon") or name:find("sword") then
-        return "Weapon"
-    elseif name:find("pet") or name:find("egg") then
-        return "Pet"
-    elseif name:find("bell") or name:find("collect") then
-        return "Bells"
-    end
-
-    return nil
-end
-
+-- ── LOOPS ───────────────────────────────────────────────────
 task.spawn(function()
-    while running do
-        task.wait(0.35)
-
-        local character = player.Character
-        local root = character and character:FindFirstChild("HumanoidRootPart")
-
-        if not root then
-            continue
-        end
-
-        for _, object in ipairs(workspace:GetDescendants()) do
-            if not object:IsA("ProximityPrompt") then
-                continue
-            end
-
-            local category = getPromptCategory(object)
-
-            if not category or not settings[category] then
-                continue
-            end
-
-            if not object.Enabled or promptBusy[object] then
-                continue
-            end
-
-            local parent = object.Parent
-            local part = parent and (
-                parent:IsA("BasePart") and parent
-                or parent:FindFirstChildWhichIsA("BasePart")
-            )
-
-            if not part then
-                continue
-            end
-
-            local distance = (root.Position - part.Position).Magnitude
-
-            if distance <= object.MaxActivationDistance then
-                promptBusy[object] = true
-
-                task.spawn(function()
-                    local ok = pcall(function()
-                        if object.Parent and object.Enabled then
-                            object:InputHoldBegin()
-                            task.wait(math.max(object.HoldDuration, 0.1))
-                            object:InputHoldEnd()
-                        end
-                    end)
-
-                    task.wait(1)
-
-                    promptBusy[object] = nil
-                end)
-            end
-        end
-    end
+	while true do
+		if Auto.Rank then
+			safeFire(RankUpRemote)
+			setStatus("ranking…")
+		end
+		task.wait(RANK_INTERVAL)
+	end
 end)
 
 task.spawn(function()
-    while running do
-        task.wait(0.15)
-
-        if not settings.Swing then
-            continue
-        end
-
-        local character = player.Character
-        local tool = character and character:FindFirstChildOfClass("Tool")
-
-        if tool and tool.Enabled then
-            pcall(function()
-                tool:Activate()
-            end)
-        end
-    end
+	while true do
+		if Auto.Weapon then
+			safeFire(BuyWeaponRemote, BEST_WEAPON_NAME)
+			safeFire(EquipWeapon, BEST_WEAPON_NAME)
+			setStatus("weapon → " .. BEST_WEAPON_NAME)
+		end
+		task.wait(WEAPON_INTERVAL)
+	end
 end)
 
-player.CharacterAdded:Connect(function()
-    status.Text = "Character respawned"
+task.spawn(function()
+	while true do
+		if Auto.Bells then
+			safeFire(BuyBellRemote)
+			setStatus("bells…")
+		end
+		task.wait(BELL_INTERVAL)
+	end
 end)
+
+task.spawn(function()
+	while true do
+		if Auto.Sell then
+			safeFire(SellRemote, "All")
+			setStatus("selling…")
+		end
+		task.wait(SELL_INTERVAL)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		if Auto.Buy then
+			safeFire(RankUpRemote)
+			safeFire(BuyWeaponRemote, BEST_WEAPON_NAME)
+			setStatus("buying cycle…")
+		end
+		task.wait(2.0)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		if Auto.Pet then
+			safeFire(BuyPetRemote, BEST_PET_NAME)
+			safeFire(EquipPetRemote, BEST_PET_NAME)
+			setStatus("pet → " .. BEST_PET_NAME)
+		end
+		task.wait(5.0)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		safeFire(ClaimRemote)
+		task.wait(1.5)
+	end
+end)
+
+print("[NinjaDelta] loaded")
