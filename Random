@@ -1,0 +1,297 @@
+
+local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local settings = {
+    Swing = false,
+    Sell = false,
+    Rank = false,
+    Weapon = false,
+    Pet = false,
+    Bells = false,
+}
+
+local running = true
+local promptBusy = {}
+local lastSwing = 0
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "NinjaAdmin"
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
+
+local main = Instance.new("Frame")
+main.Size = UDim2.fromOffset(300, 390)
+main.Position = UDim2.new(0, 25, 0.3, 0)
+main.BackgroundColor3 = Color3.fromRGB(17, 17, 27)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = main
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(151, 78, 255)
+stroke.Thickness = 1.5
+stroke.Parent = main
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -20, 0, 42)
+title.Position = UDim2.fromOffset(12, 4)
+title.BackgroundTransparency = 1
+title.Text = "NINJA  /  CONTROL"
+title.TextColor3 = Color3.fromRGB(192, 139, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 17
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = main
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, -24, 0, 24)
+status.Position = UDim2.fromOffset(12, 42)
+status.BackgroundTransparency = 1
+status.Text = "SYSTEM READY"
+status.TextColor3 = Color3.fromRGB(130, 220, 165)
+status.Font = Enum.Font.Gotham
+status.TextSize = 11
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.Parent = main
+
+local content = Instance.new("Frame")
+content.Size = UDim2.new(1, -24, 0, 266)
+content.Position = UDim2.fromOffset(12, 76)
+content.BackgroundTransparency = 1
+content.Parent = main
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 7)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = content
+
+local buttons = {}
+
+local function createToggle(key, label)
+    local button = Instance.new("TextButton")
+    button.Name = key
+    button.Size = UDim2.new(1, 0, 0, 36)
+    button.BackgroundColor3 = Color3.fromRGB(35, 35, 49)
+    button.BorderSizePixel = 0
+    button.Font = Enum.Font.GothamSemibold
+    button.TextSize = 12
+    button.Parent = content
+
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 7)
+    buttonCorner.Parent = button
+
+    local function refresh()
+        local enabled = settings[key]
+        button.Text = label .. (enabled and "    [ ON ]" or "    [ OFF ]")
+        button.TextColor3 = enabled
+            and Color3.fromRGB(190, 255, 211)
+            or Color3.fromRGB(205, 205, 220)
+
+        button.BackgroundColor3 = enabled
+            and Color3.fromRGB(61, 37, 91)
+            or Color3.fromRGB(35, 35, 49)
+    end
+
+    button.Activated:Connect(function()
+        settings[key] = not settings[key]
+        refresh()
+    end)
+
+    buttons[key] = refresh
+    refresh()
+end
+
+createToggle("Swing", "Auto Swing Equipped Tool")
+createToggle("Sell", "Auto Sell Prompts")
+createToggle("Rank", "Auto Rank Prompts")
+createToggle("Weapon", "Auto Weapon Prompts")
+createToggle("Pet", "Auto Pet / Egg Prompts")
+createToggle("Bells", "Auto Bell / Collection Prompts")
+
+local equipButton = Instance.new("TextButton")
+equipButton.Size = UDim2.new(1, 0, 0, 36)
+equipButton.BackgroundColor3 = Color3.fromRGB(105, 60, 175)
+equipButton.TextColor3 = Color3.new(1, 1, 1)
+equipButton.Text = "EQUIP BEST AVAILABLE TOOL"
+equipButton.Font = Enum.Font.GothamBold
+equipButton.TextSize = 11
+equipButton.Parent = main
+equipButton.Position = UDim2.new(0, 12, 1, -54)
+
+local equipCorner = Instance.new("UICorner")
+equipCorner.CornerRadius = UDim.new(0, 7)
+equipCorner.Parent = equipButton
+
+local function getToolScore(tool)
+    local best = 0
+
+    for _, name in ipairs({
+        "Damage",
+        "Power",
+        "Level",
+        "Multiplier",
+    }) do
+        local attribute = tool:GetAttribute(name)
+        if typeof(attribute) == "number" then
+            best = math.max(best, attribute)
+        end
+
+        local value = tool:FindFirstChild(name)
+        if value and (
+            value:IsA("NumberValue")
+            or value:IsA("IntValue")
+        ) then
+            best = math.max(best, value.Value)
+        end
+    end
+
+    return best
+end
+
+local function equipBestTool()
+    local character = player.Character
+    local backpack = player:FindFirstChildOfClass("Backpack")
+
+    if not character or not backpack then
+        status.Text = "Character or backpack unavailable"
+        return
+    end
+
+    local bestTool
+    local bestScore = -math.huge
+
+    for _, container in ipairs({backpack, character}) do
+        for _, item in ipairs(container:GetChildren()) do
+            if item:IsA("Tool") then
+                local score = getToolScore(item)
+
+                if score > bestScore then
+                    bestScore = score
+                    bestTool = item
+                end
+            end
+        end
+    end
+
+    if bestTool then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:EquipTool(bestTool)
+            status.Text = "Equipped: " .. bestTool.Name
+        end
+    else
+        status.Text = "No available tools found"
+    end
+end
+
+equipButton.Activated:Connect(equipBestTool)
+
+local function getPromptCategory(prompt)
+    local name = prompt.Name:lower()
+
+    if name:find("sell") then
+        return "Sell"
+    elseif name:find("rank") or name:find("rebirth") then
+        return "Rank"
+    elseif name:find("weapon") or name:find("sword") then
+        return "Weapon"
+    elseif name:find("pet") or name:find("egg") then
+        return "Pet"
+    elseif name:find("bell") or name:find("collect") then
+        return "Bells"
+    end
+
+    return nil
+end
+
+task.spawn(function()
+    while running do
+        task.wait(0.35)
+
+        local character = player.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+
+        if not root then
+            continue
+        end
+
+        for _, object in ipairs(workspace:GetDescendants()) do
+            if not object:IsA("ProximityPrompt") then
+                continue
+            end
+
+            local category = getPromptCategory(object)
+
+            if not category or not settings[category] then
+                continue
+            end
+
+            if not object.Enabled or promptBusy[object] then
+                continue
+            end
+
+            local parent = object.Parent
+            local part = parent and (
+                parent:IsA("BasePart") and parent
+                or parent:FindFirstChildWhichIsA("BasePart")
+            )
+
+            if not part then
+                continue
+            end
+
+            local distance = (root.Position - part.Position).Magnitude
+
+            if distance <= object.MaxActivationDistance then
+                promptBusy[object] = true
+
+                task.spawn(function()
+                    local ok = pcall(function()
+                        if object.Parent and object.Enabled then
+                            object:InputHoldBegin()
+                            task.wait(math.max(object.HoldDuration, 0.1))
+                            object:InputHoldEnd()
+                        end
+                    end)
+
+                    task.wait(1)
+
+                    promptBusy[object] = nil
+                end)
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    while running do
+        task.wait(0.15)
+
+        if not settings.Swing then
+            continue
+        end
+
+        local character = player.Character
+        local tool = character and character:FindFirstChildOfClass("Tool")
+
+        if tool and tool.Enabled then
+            pcall(function()
+                tool:Activate()
+            end)
+        end
+    end
+end)
+
+player.CharacterAdded:Connect(function()
+    status.Text = "Character respawned"
+end)
