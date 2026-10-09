@@ -1,39 +1,106 @@
--- language: Luau, target: Delta Executor (or any executor with getgenv / fire)
--- *Ninja Legends auto rank / best weapon / bells / sell / buy / pet + UI*
--- *replace remote paths with live ones from SimpleSpy / Hydroxide*
+-- language: Luau, target: Delta Executor
+-- *Ninja Legends – auto sell at best spot + rank/weapon/bell buy + best island*
+-- *coords: sell 95.3, 91245.6, 131.0 | player ref 11664913416*
+-- *still replace remote names after SimpleSpy / Hydroxide dump*
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 
--- ── REMOTE PLACEHOLDERS (spy & replace) ─────────────────────
-local Remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage
-local RankUpRemote    = Remotes:FindFirstChild("RankUp") or Remotes:FindFirstChild("UpgradeRank")
-local BuyWeaponRemote = Remotes:FindFirstChild("BuyWeapon") or Remotes:FindFirstChild("PurchaseWeapon")
-local EquipWeapon     = Remotes:FindFirstChild("EquipWeapon") or Remotes:FindFirstChild("SelectWeapon")
-local SellRemote      = Remotes:FindFirstChild("Sell") or Remotes:FindFirstChild("SellAll")
-local BuyPetRemote    = Remotes:FindFirstChild("BuyPet") or Remotes:FindFirstChild("PurchasePet")
-local EquipPetRemote  = Remotes:FindFirstChild("EquipPet")
-local BuyBellRemote   = Remotes:FindFirstChild("BuyBell") or Remotes:FindFirstChild("PurchaseBell")
-local ClaimRemote     = Remotes:FindFirstChild("Claim") or Remotes:FindFirstChild("Collect")
+-- ── COORDS ──────────────────────────────────────────────────
+local SELL_SPOT   = Vector3.new(95.3, 91245.6, 131.0)
+local BEST_ISLAND = Vector3.new(95.3, 91245.6, 131.0) -- same area / adjust if different
 
 -- ── CONFIG ──────────────────────────────────────────────────
-local BEST_WEAPON_NAME = "Shadow Blade"   -- change to current top weapon
-local BEST_PET_NAME    = "OwnerDragon"    -- change to your pet name
-local SELL_INTERVAL    = 2.5
-local RANK_INTERVAL    = 1.2
-local WEAPON_INTERVAL  = 3.0
-local BELL_INTERVAL    = 4.0
+local BEST_WEAPON = "Shadow Blade"   -- change to exact name in store
+local BEST_BELL   = "Golden Bell"    -- change to exact name
+local BEST_RANK   = "Shadow Rank"    -- change to exact rank name in store
+local BEST_PET    = "OwnerDragon"
+
+local INTERVAL = {
+	Sell   = 2.0,
+	Rank   = 1.5,
+	Weapon = 2.5,
+	Bell   = 3.0,
+	Island = 8.0,
+}
 
 local Auto = {
+	Sell   = false,
 	Rank   = false,
 	Weapon = false,
-	Bells  = false,
-	Sell   = false,
+	Bell   = false,
 	Buy    = false,
+	Island = false,
 	Pet    = false,
 }
+
+-- ── REMOTE FINDER (tries common paths) ──────────────────────
+local function findRemote(...)
+	local names = {...}
+	local roots = {
+		ReplicatedStorage,
+		ReplicatedStorage:FindFirstChild("Remotes"),
+		ReplicatedStorage:FindFirstChild("Events"),
+		ReplicatedStorage:FindFirstChild("RemoteEvents"),
+		ReplicatedStorage:FindFirstChild("Packages"),
+	}
+	for _, root in ipairs(roots) do
+		if root then
+			for _, name in ipairs(names) do
+				local r = root:FindFirstChild(name, true)
+				if r and (r:IsA("RemoteEvent") or r:IsA("RemoteFunction")) then
+					return r
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local RankRemote   = findRemote("RankUp", "UpgradeRank", "BuyRank", "PurchaseRank", "Rank")
+local WeaponRemote = findRemote("BuyWeapon", "PurchaseWeapon", "Weapon", "BuyItem")
+local BellRemote   = findRemote("BuyBell", "PurchaseBell", "Bell")
+local SellRemote   = findRemote("Sell", "SellAll", "SellItems", "CashIn")
+local PetRemote    = findRemote("BuyPet", "PurchasePet", "Pet", "EquipPet")
+local EquipRemote  = findRemote("EquipWeapon", "SelectWeapon", "Equip")
+
+-- ── HELPERS ─────────────────────────────────────────────────
+local function getHRP()
+	local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+	return char:FindFirstChild("HumanoidRootPart")
+end
+
+local function tp(pos)
+	local hrp = getHRP()
+	if not hrp then return end
+	hrp.CFrame = CFrame.new(pos + Vector3.new(0, 4, 0))
+end
+
+local function safeFire(remote, ...)
+	if not remote then return false end
+	local args = {...}
+	local ok = pcall(function()
+		if remote:IsA("RemoteEvent") then
+			remote:FireServer(unpack(args))
+		elseif remote:IsA("RemoteFunction") then
+			remote:InvokeServer(unpack(args))
+		end
+	end)
+	return ok
+end
+
+-- try multiple argument styles (games differ)
+local function tryPurchase(remote, itemName)
+	if not remote then return end
+	safeFire(remote, itemName)
+	safeFire(remote, itemName, 1)
+	safeFire(remote, {Name = itemName})
+	safeFire(remote, true, itemName)
+	safeFire(remote)
+end
 
 -- ── UI ──────────────────────────────────────────────────────
 local ScreenGui = Instance.new("ScreenGui")
@@ -41,21 +108,22 @@ ScreenGui.Name = "NinjaDeltaUI"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
-if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+if not ScreenGui.Parent then
+	ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
 
 local Main = Instance.new("Frame")
-Main.Name = "Main"
-Main.Size = UDim2.new(0, 260, 0, 340)
-Main.Position = UDim2.new(0, 20, 0.5, -170)
-Main.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+Main.Size = UDim2.new(0, 270, 0, 420)
+Main.Position = UDim2.new(0, 20, 0.5, -210)
+Main.BackgroundColor3 = Color3.fromRGB(16, 16, 22)
 Main.BorderSizePixel = 0
 Main.Parent = ScreenGui
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
 
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 0, 36)
-Title.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
-Title.Text = "NINJA · DELTA AUTO"
+Title.BackgroundColor3 = Color3.fromRGB(26, 26, 36)
+Title.Text = "NINJA DELTA · v2"
 Title.TextColor3 = Color3.fromRGB(0, 220, 160)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 15
@@ -64,11 +132,11 @@ Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
 
 local function makeToggle(name, y, key)
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, -24, 0, 32)
+	btn.Size = UDim2.new(1, -24, 0, 30)
 	btn.Position = UDim2.new(0, 12, 0, y)
-	btn.BackgroundColor3 = Color3.fromRGB(40, 40, 52)
+	btn.BackgroundColor3 = Color3.fromRGB(38, 38, 50)
 	btn.Text = name .. "  [OFF]"
-	btn.TextColor3 = Color3.fromRGB(200, 200, 210)
+	btn.TextColor3 = Color3.fromRGB(210, 210, 220)
 	btn.Font = Enum.Font.Gotham
 	btn.TextSize = 13
 	btn.Parent = Main
@@ -77,25 +145,27 @@ local function makeToggle(name, y, key)
 	btn.MouseButton1Click:Connect(function()
 		Auto[key] = not Auto[key]
 		btn.Text = name .. (Auto[key] and "  [ON]" or "  [OFF]")
-		btn.BackgroundColor3 = Auto[key] and Color3.fromRGB(0, 90, 70) or Color3.fromRGB(40, 40, 52)
+		btn.BackgroundColor3 = Auto[key] and Color3.fromRGB(0, 95, 70) or Color3.fromRGB(38, 38, 50)
 	end)
 end
 
-makeToggle("Auto Rank",      48,  "Rank")
-makeToggle("Best Weapon",    88,  "Weapon")
-makeToggle("Auto Bells",     128, "Bells")
-makeToggle("Auto Sell",      168, "Sell")
-makeToggle("Auto Buy",       208, "Buy")
-makeToggle("Force Best Pet", 248, "Pet")
+makeToggle("Auto Sell @ Spot",   48,  "Sell")
+makeToggle("Buy Rank (Store)",   86,  "Rank")
+makeToggle("Buy Best Weapon",    124, "Weapon")
+makeToggle("Buy Best Bell",      162, "Bell")
+makeToggle("Full Buy Cycle",     200, "Buy")
+makeToggle("Best Island TP",     238, "Island")
+makeToggle("Force Best Pet",     276, "Pet")
 
 local Status = Instance.new("TextLabel")
-Status.Size = UDim2.new(1, -24, 0, 28)
-Status.Position = UDim2.new(0, 12, 1, -40)
+Status.Size = UDim2.new(1, -24, 0, 40)
+Status.Position = UDim2.new(0, 12, 1, -50)
 Status.BackgroundTransparency = 1
-Status.Text = "ready"
-Status.TextColor3 = Color3.fromRGB(120, 120, 140)
+Status.Text = "ready · set names & spy remotes"
+Status.TextColor3 = Color3.fromRGB(130, 130, 150)
 Status.Font = Enum.Font.Gotham
 Status.TextSize = 12
+Status.TextWrapped = true
 Status.Parent = Main
 
 -- drag
@@ -112,96 +182,97 @@ Main.InputEnded:Connect(function(input)
 end)
 UserInputService.InputChanged:Connect(function(input)
 	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local delta = input.Position - dragStart
-		Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		local d = input.Position - dragStart
+		Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 	end
 end)
-
--- ── HELPERS ─────────────────────────────────────────────────
-local function safeFire(remote, ...)
-	if not remote then return end
-	pcall(function(...)
-		if remote:IsA("RemoteEvent") then
-			remote:FireServer(...)
-		elseif remote:IsA("RemoteFunction") then
-			remote:InvokeServer(...)
-		end
-	end, ...)
-end
 
 local function setStatus(t)
 	Status.Text = t
 end
 
 -- ── LOOPS ───────────────────────────────────────────────────
-task.spawn(function()
-	while true do
-		if Auto.Rank then
-			safeFire(RankUpRemote)
-			setStatus("ranking…")
-		end
-		task.wait(RANK_INTERVAL)
-	end
-end)
-
-task.spawn(function()
-	while true do
-		if Auto.Weapon then
-			safeFire(BuyWeaponRemote, BEST_WEAPON_NAME)
-			safeFire(EquipWeapon, BEST_WEAPON_NAME)
-			setStatus("weapon → " .. BEST_WEAPON_NAME)
-		end
-		task.wait(WEAPON_INTERVAL)
-	end
-end)
-
-task.spawn(function()
-	while true do
-		if Auto.Bells then
-			safeFire(BuyBellRemote)
-			setStatus("bells…")
-		end
-		task.wait(BELL_INTERVAL)
-	end
-end)
-
+-- Sell at exact spot
 task.spawn(function()
 	while true do
 		if Auto.Sell then
-			safeFire(SellRemote, "All")
-			setStatus("selling…")
+			tp(SELL_SPOT)
+			task.wait(0.35)
+			tryPurchase(SellRemote, "All")
+			tryPurchase(SellRemote, true)
+			setStatus("sold @ " .. tostring(SELL_SPOT))
 		end
-		task.wait(SELL_INTERVAL)
+		task.wait(INTERVAL.Sell)
 	end
 end)
 
+-- Rank from store
+task.spawn(function()
+	while true do
+		if Auto.Rank then
+			tryPurchase(RankRemote, BEST_RANK)
+			setStatus("rank buy → " .. BEST_RANK)
+		end
+		task.wait(INTERVAL.Rank)
+	end
+end)
+
+-- Weapon
+task.spawn(function()
+	while true do
+		if Auto.Weapon then
+			tryPurchase(WeaponRemote, BEST_WEAPON)
+			tryPurchase(EquipRemote, BEST_WEAPON)
+			setStatus("weapon → " .. BEST_WEAPON)
+		end
+		task.wait(INTERVAL.Weapon)
+	end
+end)
+
+-- Bell
+task.spawn(function()
+	while true do
+		if Auto.Bell then
+			tryPurchase(BellRemote, BEST_BELL)
+			setStatus("bell → " .. BEST_BELL)
+		end
+		task.wait(INTERVAL.Bell)
+	end
+end)
+
+-- Full buy cycle (rank + weapon + bell)
 task.spawn(function()
 	while true do
 		if Auto.Buy then
-			safeFire(RankUpRemote)
-			safeFire(BuyWeaponRemote, BEST_WEAPON_NAME)
-			setStatus("buying cycle…")
+			tryPurchase(RankRemote, BEST_RANK)
+			tryPurchase(WeaponRemote, BEST_WEAPON)
+			tryPurchase(BellRemote, BEST_BELL)
+			setStatus("full buy cycle")
 		end
-		task.wait(2.0)
+		task.wait(2.2)
 	end
 end)
 
+-- Best island
+task.spawn(function()
+	while true do
+		if Auto.Island then
+			tp(BEST_ISLAND)
+			setStatus("island TP")
+		end
+		task.wait(INTERVAL.Island)
+	end
+end)
+
+-- Pet
 task.spawn(function()
 	while true do
 		if Auto.Pet then
-			safeFire(BuyPetRemote, BEST_PET_NAME)
-			safeFire(EquipPetRemote, BEST_PET_NAME)
-			setStatus("pet → " .. BEST_PET_NAME)
+			tryPurchase(PetRemote, BEST_PET)
+			setStatus("pet → " .. BEST_PET)
 		end
-		task.wait(5.0)
+		task.wait(5)
 	end
 end)
 
-task.spawn(function()
-	while true do
-		safeFire(ClaimRemote)
-		task.wait(1.5)
-	end
-end)
-
-print("[NinjaDelta] loaded")
+print("[NinjaDelta v2] loaded | sell spot locked | player ref 11664913416")
