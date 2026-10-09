@@ -1,110 +1,90 @@
--- language: Luau, target: Delta Executor
--- *Ninja Legends – auto sell at best spot + rank/weapon/bell buy + best island*
--- *coords: sell 95.3, 91245.6, 131.0 | player ref 11664913416*
--- *still replace remote names after SimpleSpy / Hydroxide dump*
+-- language: Luau, target: Delta Executor (mobile)
+-- *Ninja Legends full cycle: TP sell → sell → buy rank/rebirth → weapon → bell → auto attack*
+-- *built-in remote logger: press CAPTURE, buy the item once in-game, script records the remote*
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
 -- ── COORDS ──────────────────────────────────────────────────
-local SELL_SPOT   = Vector3.new(95.3, 91245.6, 131.0)
-local BEST_ISLAND = Vector3.new(95.3, 91245.6, 131.0) -- same area / adjust if different
+local SELL_SPOT = Vector3.new(95.3, 91245.6, 131.0)
 
--- ── CONFIG ──────────────────────────────────────────────────
-local BEST_WEAPON = "Shadow Blade"   -- change to exact name in store
-local BEST_BELL   = "Golden Bell"    -- change to exact name
-local BEST_RANK   = "Shadow Rank"    -- change to exact rank name in store
-local BEST_PET    = "OwnerDragon"
-
-local INTERVAL = {
-	Sell   = 2.0,
-	Rank   = 1.5,
-	Weapon = 2.5,
-	Bell   = 3.0,
-	Island = 8.0,
+-- ── STORED REMOTES (filled by capture) ──────────────────────
+local Captured = {
+	Sell   = nil,  -- {remote, args}
+	Rank   = nil,
+	Weapon = nil,
+	Bell   = nil,
+	Rebirth= nil,
 }
 
-local Auto = {
-	Sell   = false,
-	Rank   = false,
-	Weapon = false,
-	Bell   = false,
-	Buy    = false,
-	Island = false,
-	Pet    = false,
-}
+local CaptureMode = nil -- "Sell", "Rank", etc.
 
--- ── REMOTE FINDER (tries common paths) ──────────────────────
-local function findRemote(...)
-	local names = {...}
-	local roots = {
-		ReplicatedStorage,
-		ReplicatedStorage:FindFirstChild("Remotes"),
-		ReplicatedStorage:FindFirstChild("Events"),
-		ReplicatedStorage:FindFirstChild("RemoteEvents"),
-		ReplicatedStorage:FindFirstChild("Packages"),
-	}
-	for _, root in ipairs(roots) do
-		if root then
-			for _, name in ipairs(names) do
-				local r = root:FindFirstChild(name, true)
-				if r and (r:IsA("RemoteEvent") or r:IsA("RemoteFunction")) then
-					return r
-				end
-			end
+-- ── HOOK FireServer / InvokeServer ──────────────────────────
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+setreadonly(mt, false)
+
+mt.__namecall = newcclosure(function(self, ...)
+	local method = getnamecallmethod()
+	local args = {...}
+	if CaptureMode and (method == "FireServer" or method == "InvokeServer") then
+		if self:IsA("RemoteEvent") or self:IsA("RemoteFunction") then
+			Captured[CaptureMode] = {remote = self, args = args, method = method}
+			CaptureMode = nil
+			setStatus("captured " .. (Captured[CaptureMode] and "" or "ok"))
 		end
 	end
-	return nil
-end
-
-local RankRemote   = findRemote("RankUp", "UpgradeRank", "BuyRank", "PurchaseRank", "Rank")
-local WeaponRemote = findRemote("BuyWeapon", "PurchaseWeapon", "Weapon", "BuyItem")
-local BellRemote   = findRemote("BuyBell", "PurchaseBell", "Bell")
-local SellRemote   = findRemote("Sell", "SellAll", "SellItems", "CashIn")
-local PetRemote    = findRemote("BuyPet", "PurchasePet", "Pet", "EquipPet")
-local EquipRemote  = findRemote("EquipWeapon", "SelectWeapon", "Equip")
+	return oldNamecall(self, ...)
+end)
+setreadonly(mt, true)
 
 -- ── HELPERS ─────────────────────────────────────────────────
 local function getHRP()
-	local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-	return char:FindFirstChild("HumanoidRootPart")
+	local c = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+	return c:FindFirstChild("HumanoidRootPart")
 end
 
 local function tp(pos)
 	local hrp = getHRP()
-	if not hrp then return end
-	hrp.CFrame = CFrame.new(pos + Vector3.new(0, 4, 0))
+	if hrp then
+		hrp.CFrame = CFrame.new(pos + Vector3.new(0, 5, 0))
+	end
 end
 
-local function safeFire(remote, ...)
-	if not remote then return false end
-	local args = {...}
-	local ok = pcall(function()
-		if remote:IsA("RemoteEvent") then
-			remote:FireServer(unpack(args))
-		elseif remote:IsA("RemoteFunction") then
-			remote:InvokeServer(unpack(args))
+local function fireCaptured(key)
+	local data = Captured[key]
+	if not data or not data.remote then return false end
+	pcall(function()
+		if data.method == "FireServer" then
+			data.remote:FireServer(unpack(data.args))
+		else
+			data.remote:InvokeServer(unpack(data.args))
 		end
 	end)
-	return ok
+	return true
 end
 
--- try multiple argument styles (games differ)
-local function tryPurchase(remote, itemName)
-	if not remote then return end
-	safeFire(remote, itemName)
-	safeFire(remote, itemName, 1)
-	safeFire(remote, {Name = itemName})
-	safeFire(remote, true, itemName)
-	safeFire(remote)
+local function autoAttack()
+	pcall(function()
+		VirtualUser:CaptureController()
+		VirtualUser:ClickButton1(Vector2.new())
+	end)
+	-- also activate any tool
+	local char = LocalPlayer.Character
+	if char then
+		local tool = char:FindFirstChildOfClass("Tool")
+		if tool then
+			pcall(function() tool:Activate() end)
+		end
+	end
 end
 
--- ── UI ──────────────────────────────────────────────────────
+-- ── UI (big buttons for phone) ──────────────────────────────
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "NinjaDeltaUI"
+ScreenGui.Name = "NinjaFullCycle"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
@@ -113,166 +93,159 @@ if not ScreenGui.Parent then
 end
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 270, 0, 420)
-Main.Position = UDim2.new(0, 20, 0.5, -210)
-Main.BackgroundColor3 = Color3.fromRGB(16, 16, 22)
+Main.Size = UDim2.new(0, 280, 0, 520)
+Main.Position = UDim2.new(0, 10, 0.5, -260)
+Main.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
 Main.BorderSizePixel = 0
 Main.Parent = ScreenGui
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 12)
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 36)
-Title.BackgroundColor3 = Color3.fromRGB(26, 26, 36)
-Title.Text = "NINJA DELTA · v2"
-Title.TextColor3 = Color3.fromRGB(0, 220, 160)
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundColor3 = Color3.fromRGB(24, 24, 34)
+Title.Text = "NINJA FULL CYCLE"
+Title.TextColor3 = Color3.fromRGB(0, 230, 160)
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 15
+Title.TextSize = 16
 Title.Parent = Main
-Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
-
-local function makeToggle(name, y, key)
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, -24, 0, 30)
-	btn.Position = UDim2.new(0, 12, 0, y)
-	btn.BackgroundColor3 = Color3.fromRGB(38, 38, 50)
-	btn.Text = name .. "  [OFF]"
-	btn.TextColor3 = Color3.fromRGB(210, 210, 220)
-	btn.Font = Enum.Font.Gotham
-	btn.TextSize = 13
-	btn.Parent = Main
-	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-
-	btn.MouseButton1Click:Connect(function()
-		Auto[key] = not Auto[key]
-		btn.Text = name .. (Auto[key] and "  [ON]" or "  [OFF]")
-		btn.BackgroundColor3 = Auto[key] and Color3.fromRGB(0, 95, 70) or Color3.fromRGB(38, 38, 50)
-	end)
-end
-
-makeToggle("Auto Sell @ Spot",   48,  "Sell")
-makeToggle("Buy Rank (Store)",   86,  "Rank")
-makeToggle("Buy Best Weapon",    124, "Weapon")
-makeToggle("Buy Best Bell",      162, "Bell")
-makeToggle("Full Buy Cycle",     200, "Buy")
-makeToggle("Best Island TP",     238, "Island")
-makeToggle("Force Best Pet",     276, "Pet")
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 12)
 
 local Status = Instance.new("TextLabel")
-Status.Size = UDim2.new(1, -24, 0, 40)
-Status.Position = UDim2.new(0, 12, 1, -50)
+Status.Size = UDim2.new(1, -20, 0, 36)
+Status.Position = UDim2.new(0, 10, 0, 44)
 Status.BackgroundTransparency = 1
-Status.Text = "ready · set names & spy remotes"
-Status.TextColor3 = Color3.fromRGB(130, 130, 150)
+Status.Text = "1. CAPTURE each action once\n2. press FULL CYCLE"
+Status.TextColor3 = Color3.fromRGB(160, 160, 180)
 Status.Font = Enum.Font.Gotham
 Status.TextSize = 12
 Status.TextWrapped = true
 Status.Parent = Main
 
+function setStatus(t)
+	Status.Text = t
+end
+
+local function bigBtn(text, y, color, callback)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(1, -20, 0, 42)
+	b.Position = UDim2.new(0, 10, 0, y)
+	b.BackgroundColor3 = color
+	b.Text = text
+	b.TextColor3 = Color3.fromRGB(255, 255, 255)
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 14
+	b.Parent = Main
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+	b.MouseButton1Click:Connect(callback)
+	return b
+end
+
+-- CAPTURE BUTTONS
+bigBtn("CAPTURE SELL", 90, Color3.fromRGB(50, 50, 70), function()
+	CaptureMode = "Sell"
+	setStatus("now SELL once in-game…")
+end)
+
+bigBtn("CAPTURE RANK / REBIRTH", 140, Color3.fromRGB(50, 50, 70), function()
+	CaptureMode = "Rank"
+	setStatus("now BUY RANK or REBIRTH once…")
+end)
+
+bigBtn("CAPTURE WEAPON", 190, Color3.fromRGB(50, 50, 70), function()
+	CaptureMode = "Weapon"
+	setStatus("now BUY WEAPON once…")
+end)
+
+bigBtn("CAPTURE BELL", 240, Color3.fromRGB(50, 50, 70), function()
+	CaptureMode = "Bell"
+	setStatus("now BUY BELL once…")
+end)
+
+bigBtn("CAPTURE REBIRTH (extra)", 290, Color3.fromRGB(50, 50, 70), function()
+	CaptureMode = "Rebirth"
+	setStatus("now REBIRTH once…")
+end)
+
+-- FULL CYCLE
+local cycling = false
+bigBtn("▶  FULL CYCLE  (ON/OFF)", 350, Color3.fromRGB(0, 120, 80), function()
+	cycling = not cycling
+	setStatus(cycling and "FULL CYCLE RUNNING…" or "stopped")
+end)
+
+-- AUTO ATTACK TOGGLE
+local attacking = false
+bigBtn("AUTO ATTACK  (ON/OFF)", 400, Color3.fromRGB(80, 60, 20), function()
+	attacking = not attacking
+	setStatus(attacking and "auto attack ON" or "auto attack OFF")
+end)
+
+-- TP SELL SPOT only
+bigBtn("TP SELL SPOT", 450, Color3.fromRGB(40, 40, 60), function()
+	tp(SELL_SPOT)
+	setStatus("teleported to sell spot")
+end)
+
 -- drag
 local dragging, dragStart, startPos
 Main.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = true
 		dragStart = input.Position
 		startPos = Main.Position
 	end
 end)
 Main.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
 end)
 UserInputService.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		local d = input.Position - dragStart
 		Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 	end
 end)
 
-local function setStatus(t)
-	Status.Text = t
-end
-
--- ── LOOPS ───────────────────────────────────────────────────
--- Sell at exact spot
+-- ── FULL CYCLE LOOP ─────────────────────────────────────────
 task.spawn(function()
 	while true do
-		if Auto.Sell then
+		if cycling then
+			-- 1. TP to sell spot
 			tp(SELL_SPOT)
-			task.wait(0.35)
-			tryPurchase(SellRemote, "All")
-			tryPurchase(SellRemote, true)
-			setStatus("sold @ " .. tostring(SELL_SPOT))
+			task.wait(0.4)
+
+			-- 2. Sell
+			fireCaptured("Sell")
+			task.wait(0.3)
+
+			-- 3. Buy Rank / Rebirth
+			fireCaptured("Rank")
+			fireCaptured("Rebirth")
+			task.wait(0.3)
+
+			-- 4. Buy Weapon
+			fireCaptured("Weapon")
+			task.wait(0.3)
+
+			-- 5. Buy Bell
+			fireCaptured("Bell")
+			task.wait(0.3)
+
+			setStatus("cycle done – repeating")
 		end
-		task.wait(INTERVAL.Sell)
+		task.wait(2.5)
 	end
 end)
 
--- Rank from store
+-- auto attack loop
 task.spawn(function()
 	while true do
-		if Auto.Rank then
-			tryPurchase(RankRemote, BEST_RANK)
-			setStatus("rank buy → " .. BEST_RANK)
+		if attacking then
+			autoAttack()
 		end
-		task.wait(INTERVAL.Rank)
+		task.wait(0.15)
 	end
 end)
 
--- Weapon
-task.spawn(function()
-	while true do
-		if Auto.Weapon then
-			tryPurchase(WeaponRemote, BEST_WEAPON)
-			tryPurchase(EquipRemote, BEST_WEAPON)
-			setStatus("weapon → " .. BEST_WEAPON)
-		end
-		task.wait(INTERVAL.Weapon)
-	end
-end)
-
--- Bell
-task.spawn(function()
-	while true do
-		if Auto.Bell then
-			tryPurchase(BellRemote, BEST_BELL)
-			setStatus("bell → " .. BEST_BELL)
-		end
-		task.wait(INTERVAL.Bell)
-	end
-end)
-
--- Full buy cycle (rank + weapon + bell)
-task.spawn(function()
-	while true do
-		if Auto.Buy then
-			tryPurchase(RankRemote, BEST_RANK)
-			tryPurchase(WeaponRemote, BEST_WEAPON)
-			tryPurchase(BellRemote, BEST_BELL)
-			setStatus("full buy cycle")
-		end
-		task.wait(2.2)
-	end
-end)
-
--- Best island
-task.spawn(function()
-	while true do
-		if Auto.Island then
-			tp(BEST_ISLAND)
-			setStatus("island TP")
-		end
-		task.wait(INTERVAL.Island)
-	end
-end)
-
--- Pet
-task.spawn(function()
-	while true do
-		if Auto.Pet then
-			tryPurchase(PetRemote, BEST_PET)
-			setStatus("pet → " .. BEST_PET)
-		end
-		task.wait(5)
-	end
-end)
-
-print("[NinjaDelta v2] loaded | sell spot locked | player ref 11664913416")
+print("[NinjaFullCycle] loaded – capture then full cycle")
