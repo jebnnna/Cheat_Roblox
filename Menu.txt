@@ -17,8 +17,8 @@ ScreenGui.Parent = CoreGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 280, 0, 230)
-MainFrame.Position = UDim2.new(0.5, -140, 0.5, -115)
+MainFrame.Size = UDim2.new(0, 280, 0, 310)
+MainFrame.Position = UDim2.new(0.5, -140, 0.5, -155)
 MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
@@ -68,7 +68,6 @@ MinBtn.BorderSizePixel = 0
 MinBtn.Parent = TitleBar
 Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 8)
 
--- Content area (holds subtitle + buttons)
 local ContentFrame = Instance.new("Frame")
 ContentFrame.Name = "ContentFrame"
 ContentFrame.Size = UDim2.new(1, 0, 1, -48)
@@ -125,8 +124,9 @@ local function CreateMenuButton(text, url)
     return Btn
 end
 
-CreateMenuButton("BASIC HACK", "https://raw.githubusercontent.com/jebnnna/Cheat_Roblox/main/basic_hack.txt")
-CreateMenuButton("FPS HELPER", "https://raw.githubusercontent.com/jebnnna/Cheat_Roblox/main/FpsShooter.txt")
+CreateMenuButton("BASIC HACK",  "https://raw.githubusercontent.com/jebnnna/Cheat_Roblox/main/basic_hack.txt")
+CreateMenuButton("FPS HELPER",  "https://raw.githubusercontent.com/jebnnna/Cheat_Roblox/main/FpsShooter.txt")
+CreateMenuButton("SCANNER",     "https://raw.githubusercontent.com/jebnnna/Cheat_Roblox/main/Scaner.txt")
 
 -- EXIT BUTTON
 local ExitBtn = Instance.new("TextButton")
@@ -154,7 +154,7 @@ ExitBtn.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
--- ─── DRAG ─────────────────────────────────────────────────────
+-- DRAG
 local dragging, dragInput, dragStart, startPos
 TitleBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -178,11 +178,11 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- ─── MINIMIZE ─────────────────────────────────────────────────
+-- MINIMIZE
 local minimized = false
 MinBtn.MouseButton1Click:Connect(function()
     minimized = not minimized
-    local targetSize = minimized and UDim2.new(0, 280, 0, 48) or UDim2.new(0, 280, 0, 230)
+    local targetSize = minimized and UDim2.new(0, 280, 0, 48) or UDim2.new(0, 280, 0, 310)
     TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Size = targetSize}):Play()
     MinBtn.Text = minimized and "+" or "—"
     ContentFrame.Visible = not minimized
