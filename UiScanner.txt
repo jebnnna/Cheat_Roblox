@@ -111,33 +111,32 @@ end
 
 local StatusLbl = SLbl()
 
--- ─── CLICK ENGINE (fixed) ────────────────────────────────────
--- Tries every available method in executor environment
+-- ─── CLICK ENGINE ────────────────────────────────────────────
+-- Uses VirtualInputManager to simulate a real tap at the element's
+-- screen center — works on Delta mobile regardless of button type.
+local VIM = game:GetService("VirtualInputManager")
+
 local function FireElement(inst)
     if not inst or not inst.Parent then return false end
-
-    -- Method 1: firebutton (Delta/Synapse native function)
-    local ok = pcall(function()
-        if firebutton then firebutton(inst) end
-    end)
-    if ok then return true end
-
-    -- Method 2: GuiButton signals via :Fire()
-    if inst:IsA("GuiButton") then
-        pcall(function() inst.MouseButton1Down:Fire(0,0) end)
-        pcall(function() inst.MouseButton1Up:Fire(0,0) end)
-        pcall(function() inst.MouseButton1Click:Fire() end)
-        return true
-    end
-
-    -- Method 3: synthesize touch at element center via VirtualInputManager
-    pcall(function()
-        local vim = game:GetService("VirtualInputManager")
+    -- Get absolute center of the element on screen
+    local ok, err = pcall(function()
         local pos = inst.AbsolutePosition + inst.AbsoluteSize * 0.5
-        vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true,  game, 0)
+        -- Finger down
+        VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true,  game, 0)
         task.wait(0.05)
-        vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+        -- Finger up
+        VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
     end)
+    -- Fallback: fire signals directly if VIM failed
+    if not ok then
+        pcall(function()
+            if inst:IsA("GuiButton") then
+                inst.MouseButton1Down:Fire(0, 0)
+                inst.MouseButton1Up:Fire(0, 0)
+                inst.MouseButton1Click:Fire()
+            end
+        end)
+    end
     return true
 end
 
