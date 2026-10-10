@@ -1,0 +1,681 @@
+-- UiScanner | roblox_cs | Roblox Mobile
+-- Scans PlayerGui for UI elements by name, highlights them,
+-- and simulates a click (FireButton / FireClickDetector / MouseButton1Click)
+-- instead of teleporting — useful for interacting with in-game UI automatically.
+
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService       = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+if game:GetService("CoreGui"):FindFirstChild("UiScannerGUI") then
+    game:GetService("CoreGui").UiScannerGUI:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = "UiScannerGUI"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent         = game:GetService("CoreGui")
+
+-- ─── PERSISTENT STATE ────────────────────────────────────────
+local PersistState = {
+    LastSearch  = "",
+    ClickDelay  = 1.5,     -- seconds between auto-clicks in continuous mode
+    FilterMode  = "All",   -- "All" | "Buttons" | "TextLabels" | "Frames" | "ImageButtons"
+    ScanCoreGui = false,   -- also scan CoreGui (some games put UI there)
+}
+
+-- ─── MAIN FRAME ──────────────────────────────────────────────
+local MainFrame = Instance.new("Frame")
+MainFrame.Name             = "MainFrame"
+MainFrame.Size             = UDim2.new(0, 280, 0, 620)
+MainFrame.Position         = UDim2.new(0.5, -140, 0.5, -310)
+MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+MainFrame.BorderSizePixel  = 0
+MainFrame.ClipsDescendants = true
+MainFrame.Parent           = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color     = Color3.fromRGB(70, 70, 70)
+MainStroke.Thickness = 1.5
+MainStroke.Parent    = MainFrame
+
+-- Title bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Name             = "TitleBar"
+TitleBar.Size             = UDim2.new(1, 0, 0, 48)
+TitleBar.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+TitleBar.BorderSizePixel  = 0
+TitleBar.Parent           = MainFrame
+Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 12)
+
+local TitleFix = Instance.new("Frame")
+TitleFix.Size             = UDim2.new(1, 0, 0, 12)
+TitleFix.Position         = UDim2.new(0, 0, 1, -12)
+TitleFix.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+TitleFix.BorderSizePixel  = 0
+TitleFix.Parent           = TitleBar
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Text                   = "UI SCANNER"
+TitleLabel.Size                   = UDim2.new(1, -50, 1, 0)
+TitleLabel.Position               = UDim2.new(0, 15, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.TextColor3             = Color3.fromRGB(240, 240, 240)
+TitleLabel.TextSize               = 16
+TitleLabel.Font                   = Enum.Font.GothamBold
+TitleLabel.TextXAlignment         = Enum.TextXAlignment.Left
+TitleLabel.Parent                 = TitleBar
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Text             = "—"
+MinBtn.Size             = UDim2.new(0, 36, 0, 36)
+MinBtn.Position         = UDim2.new(1, -42, 0, 6)
+MinBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+MinBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+MinBtn.TextSize         = 14
+MinBtn.Font             = Enum.Font.GothamBold
+MinBtn.BorderSizePixel  = 0
+MinBtn.Parent           = TitleBar
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 8)
+
+-- Content scrolling frame
+local ContentFrame = Instance.new("ScrollingFrame")
+ContentFrame.Name                   = "ContentFrame"
+ContentFrame.Size                   = UDim2.new(1, 0, 1, -58)
+ContentFrame.Position               = UDim2.new(0, 0, 0, 58)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.BorderSizePixel        = 0
+ContentFrame.ScrollBarThickness     = 3
+ContentFrame.ScrollBarImageColor3   = Color3.fromRGB(70, 70, 70)
+ContentFrame.CanvasSize             = UDim2.new(0, 0, 0, 0)
+ContentFrame.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+ContentFrame.Parent                 = MainFrame
+
+local ContentLayout = Instance.new("UIListLayout")
+ContentLayout.Padding             = UDim.new(0, 8)
+ContentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+ContentLayout.VerticalAlignment   = Enum.VerticalAlignment.Top
+ContentLayout.Parent              = ContentFrame
+
+local ContentPad = Instance.new("UIPadding")
+ContentPad.PaddingTop    = UDim.new(0, 8)
+ContentPad.PaddingBottom = UDim.new(0, 8)
+ContentPad.Parent        = ContentFrame
+
+-- ─── HELPERS ─────────────────────────────────────────────────
+local function CreateSection(text)
+    local Lbl = Instance.new("TextLabel")
+    Lbl.Text                   = text
+    Lbl.Size                   = UDim2.new(0, 255, 0, 22)
+    Lbl.BackgroundTransparency = 1
+    Lbl.TextColor3             = Color3.fromRGB(130, 130, 130)
+    Lbl.TextSize               = 11
+    Lbl.Font                   = Enum.Font.GothamBold
+    Lbl.TextXAlignment         = Enum.TextXAlignment.Left
+    Lbl.Parent                 = ContentFrame
+    return Lbl
+end
+
+local function CreateActionButton(labelText, bgColor, strokeColor, textColor)
+    local Btn = Instance.new("TextButton")
+    Btn.Size             = UDim2.new(0, 255, 0, 44)
+    Btn.BackgroundColor3 = bgColor or Color3.fromRGB(25, 20, 40)
+    Btn.BorderSizePixel  = 0
+    Btn.AutoButtonColor  = false
+    Btn.Text             = ""
+    Btn.Parent           = ContentFrame
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 10)
+
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color     = strokeColor or Color3.fromRGB(55, 55, 55)
+    Stroke.Thickness = 1
+    Stroke.Parent    = Btn
+
+    local Lbl = Instance.new("TextLabel")
+    Lbl.Text                   = labelText
+    Lbl.Size                   = UDim2.new(1, 0, 1, 0)
+    Lbl.BackgroundTransparency = 1
+    Lbl.TextColor3             = textColor or Color3.fromRGB(210, 210, 210)
+    Lbl.TextSize               = 13
+    Lbl.Font                   = Enum.Font.GothamBold
+    Lbl.Parent                 = Btn
+    return Btn, Lbl
+end
+
+-- ─── CLICK ENGINE ────────────────────────────────────────────
+-- Tries every known method to fire a UI element as a click.
+-- Returns true if at least one method fired.
+local function FireElement(inst)
+    local fired = false
+
+    -- TextButton / ImageButton — most common
+    if inst:IsA("GuiButton") then
+        -- pcall because some games override these with metamethods
+        pcall(function()
+            inst.MouseButton1Down:Fire()
+            inst.MouseButton1Up:Fire()
+            inst.MouseButton1Click:Fire()
+        end)
+        -- Also try fireproximityprompt style via internal fire
+        pcall(function() firesignal(inst.MouseButton1Click) end)
+        fired = true
+    end
+
+    -- ClickDetector parented inside a GUI (rare but exists)
+    if inst:IsA("ClickDetector") then
+        pcall(function() fireclickdetector(inst) end)
+        fired = true
+    end
+
+    -- ProximityPrompt that happens to be in UI (some games do this)
+    if inst:IsA("ProximityPrompt") then
+        pcall(function() fireproximityprompt(inst) end)
+        fired = true
+    end
+
+    -- ImageLabel / TextLabel / Frame — not directly clickable,
+    -- but we can synthesize a touch on their AbsolutePosition
+    if not fired and inst:IsA("GuiObject") then
+        pcall(function()
+            local pos = inst.AbsolutePosition + inst.AbsoluteSize * 0.5
+            -- Simulate a tap at center of element via VirtualInputManager
+            game:GetService("VirtualInputManager"):SendMouseButtonEvent(
+                pos.X, pos.Y, 0, true,  game, 0)
+            game:GetService("VirtualInputManager"):SendMouseButtonEvent(
+                pos.X, pos.Y, 0, false, game, 0)
+        end)
+        fired = true
+    end
+
+    return fired
+end
+
+-- ─── SCAN ENGINE ─────────────────────────────────────────────
+local lastResults   = {}
+local hlInstances   = {}   -- {SelectionBox or UIStroke} to clean up
+
+local function ClearHighlights()
+    for _, obj in ipairs(hlInstances) do
+        pcall(function() obj:Destroy() end)
+    end
+    hlInstances = {}
+end
+
+-- Highlight a GuiObject with a colored UIStroke overlay
+local function HighlightUi(inst)
+    pcall(function()
+        -- Remove any existing stroke we added
+        local existing = inst:FindFirstChild("__UiScanHL")
+        if existing then existing:Destroy() end
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Name      = "__UiScanHL"
+        stroke.Color     = Color3.fromRGB(255, 100, 200)
+        stroke.Thickness = 3
+        stroke.Parent    = inst
+        hlInstances[#hlInstances + 1] = stroke
+    end)
+end
+
+local FilterModes  = {"All", "Buttons", "TextLabels", "Frames", "ImageButtons"}
+local FilterColors = {
+    All          = Color3.fromRGB(210, 210, 210),
+    Buttons      = Color3.fromRGB(255, 170, 80),
+    TextLabels   = Color3.fromRGB(100, 200, 255),
+    Frames       = Color3.fromRGB(180, 255, 100),
+    ImageButtons = Color3.fromRGB(255, 100, 200),
+}
+
+local function PassesFilter(inst)
+    local mode = PersistState.FilterMode
+    if mode == "All" then
+        return inst:IsA("GuiObject")
+    elseif mode == "Buttons" then
+        return inst:IsA("TextButton") or inst:IsA("ImageButton")
+    elseif mode == "TextLabels" then
+        return inst:IsA("TextLabel")
+    elseif mode == "Frames" then
+        return inst:IsA("Frame") or inst:IsA("ScrollingFrame")
+    elseif mode == "ImageButtons" then
+        return inst:IsA("ImageButton")
+    end
+    return false
+end
+
+local function RunSearch(query)
+    ClearHighlights()
+    lastResults = {}
+    if query == "" then return end
+
+    local queryLower = query:lower()
+
+    local roots = {LocalPlayer:WaitForChild("PlayerGui")}
+    if PersistState.ScanCoreGui then
+        roots[#roots + 1] = game:GetService("CoreGui")
+    end
+
+    for _, root in ipairs(roots) do
+        for _, inst in ipairs(root:GetDescendants()) do
+            if not inst.Name:lower():find(queryLower, 1, true) then continue end
+            if not PassesFilter(inst) then continue end
+            -- Skip our own GUI
+            if inst:IsDescendantOf(ScreenGui) then continue end
+
+            HighlightUi(inst)
+
+            lastResults[#lastResults + 1] = {
+                instance = inst,
+                name     = inst.Name,
+                class    = inst.ClassName,
+                text     = (inst:IsA("TextLabel") or inst:IsA("TextButton"))
+                            and inst.Text:sub(1, 24) or "",
+            }
+        end
+    end
+
+    return #lastResults
+end
+
+-- ─── SEARCH SECTION ──────────────────────────────────────────
+CreateSection("  SEARCH")
+
+local SearchBox = Instance.new("TextBox")
+SearchBox.Size              = UDim2.new(0, 255, 0, 38)
+SearchBox.BackgroundColor3  = Color3.fromRGB(18, 18, 18)
+SearchBox.BorderSizePixel   = 0
+SearchBox.PlaceholderText   = "type UI element name..."
+SearchBox.PlaceholderColor3 = Color3.fromRGB(75, 75, 75)
+SearchBox.TextColor3        = Color3.fromRGB(210, 210, 210)
+SearchBox.TextSize          = 12
+SearchBox.Font              = Enum.Font.Gotham
+SearchBox.ClearTextOnFocus  = false
+SearchBox.Text              = PersistState.LastSearch
+SearchBox.Parent            = ContentFrame
+Instance.new("UICorner", SearchBox).CornerRadius = UDim.new(0, 10)
+local SearchStroke = Instance.new("UIStroke")
+SearchStroke.Color  = Color3.fromRGB(50, 50, 50)
+SearchStroke.Parent = SearchBox
+
+SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    PersistState.LastSearch = SearchBox.Text
+end)
+
+-- Filter toggle
+local FilterBtn, FilterLbl = CreateActionButton(
+    "Filter: All",
+    Color3.fromRGB(18, 18, 18),
+    Color3.fromRGB(55, 55, 55)
+)
+
+local function ApplyFilterVisual()
+    FilterLbl.Text       = "Filter: " .. PersistState.FilterMode
+    FilterLbl.TextColor3 = FilterColors[PersistState.FilterMode]
+end
+ApplyFilterVisual()
+
+FilterBtn.MouseButton1Click:Connect(function()
+    local idx = 1
+    for i, v in ipairs(FilterModes) do
+        if v == PersistState.FilterMode then idx = i break end
+    end
+    idx = (idx % #FilterModes) + 1
+    PersistState.FilterMode = FilterModes[idx]
+    ApplyFilterVisual()
+end)
+
+-- CoreGui toggle
+local CoreGuiBtn, CoreGuiLbl = CreateActionButton(
+    "Scan CoreGui: OFF",
+    Color3.fromRGB(18, 18, 18),
+    Color3.fromRGB(55, 55, 55),
+    Color3.fromRGB(150, 150, 150)
+)
+CoreGuiBtn.MouseButton1Click:Connect(function()
+    PersistState.ScanCoreGui = not PersistState.ScanCoreGui
+    CoreGuiLbl.Text       = "Scan CoreGui: " .. (PersistState.ScanCoreGui and "ON" or "OFF")
+    CoreGuiLbl.TextColor3 = PersistState.ScanCoreGui
+        and Color3.fromRGB(255, 200, 80) or Color3.fromRGB(150, 150, 150)
+end)
+
+local StatusLbl = Instance.new("TextLabel")
+StatusLbl.Size                   = UDim2.new(0, 255, 0, 18)
+StatusLbl.BackgroundTransparency = 1
+StatusLbl.TextColor3             = Color3.fromRGB(100, 100, 100)
+StatusLbl.TextSize               = 11
+StatusLbl.Font                   = Enum.Font.Gotham
+StatusLbl.TextXAlignment         = Enum.TextXAlignment.Left
+StatusLbl.Text                   = "  ready"
+StatusLbl.Parent                 = ContentFrame
+
+-- Results list
+local ResultsList = Instance.new("ScrollingFrame")
+ResultsList.Size                  = UDim2.new(0, 255, 0, 160)
+ResultsList.BackgroundColor3      = Color3.fromRGB(10, 10, 10)
+ResultsList.BorderSizePixel       = 0
+ResultsList.ScrollBarThickness    = 3
+ResultsList.ScrollBarImageColor3  = Color3.fromRGB(70, 70, 70)
+ResultsList.CanvasSize            = UDim2.new(0, 0, 0, 0)
+ResultsList.AutomaticCanvasSize   = Enum.AutomaticSize.Y
+ResultsList.Parent                = ContentFrame
+Instance.new("UICorner", ResultsList).CornerRadius = UDim.new(0, 8)
+
+local ResultsLayout = Instance.new("UIListLayout")
+ResultsLayout.Padding             = UDim.new(0, 0)
+ResultsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+ResultsLayout.Parent              = ResultsList
+
+local function BuildResultRows(results)
+    for _, child in ipairs(ResultsList:GetChildren()) do
+        if child:IsA("TextButton") or child:IsA("TextLabel") then child:Destroy() end
+    end
+    if #results == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Size                   = UDim2.new(1, 0, 0, 36)
+        empty.BackgroundTransparency = 1
+        empty.Text                   = "no results"
+        empty.TextColor3             = Color3.fromRGB(80, 80, 80)
+        empty.TextSize               = 11
+        empty.Font                   = Enum.Font.Gotham
+        empty.Parent                 = ResultsList
+        return
+    end
+    for i, entry in ipairs(results) do
+        local row = Instance.new("TextButton")
+        row.Size             = UDim2.new(1, 0, 0, 48)
+        row.BackgroundColor3 = i % 2 == 0 and Color3.fromRGB(14, 14, 14) or Color3.fromRGB(10, 10, 10)
+        row.BorderSizePixel  = 0
+        row.AutoButtonColor  = false
+        row.Text             = ""
+        row.Parent           = ResultsList
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Text                   = entry.name
+        nameLbl.Size                   = UDim2.new(1, -10, 0, 18)
+        nameLbl.Position               = UDim2.new(0, 10, 0, 4)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.TextColor3             = Color3.fromRGB(200, 200, 220)
+        nameLbl.TextSize               = 12
+        nameLbl.Font                   = Enum.Font.GothamBold
+        nameLbl.TextXAlignment         = Enum.TextXAlignment.Left
+        nameLbl.TextTruncate           = Enum.TextTruncate.AtEnd
+        nameLbl.Parent                 = row
+
+        local classLbl = Instance.new("TextLabel")
+        classLbl.Text                   = entry.class
+        classLbl.Size                   = UDim2.new(0.5, 0, 0, 14)
+        classLbl.Position               = UDim2.new(0, 10, 0, 22)
+        classLbl.BackgroundTransparency = 1
+        classLbl.TextColor3             = Color3.fromRGB(80, 80, 100)
+        classLbl.TextSize               = 10
+        classLbl.Font                   = Enum.Font.Gotham
+        classLbl.TextXAlignment         = Enum.TextXAlignment.Left
+        classLbl.Parent                 = row
+
+        -- Show inner text for TextLabels/TextButtons
+        if entry.text ~= "" then
+            local txtLbl = Instance.new("TextLabel")
+            txtLbl.Text                   = '"' .. entry.text .. '"'
+            txtLbl.Size                   = UDim2.new(0.55, 0, 0, 14)
+            txtLbl.Position               = UDim2.new(0.45, 0, 0, 22)
+            txtLbl.BackgroundTransparency = 1
+            txtLbl.TextColor3             = Color3.fromRGB(180, 220, 140)
+            txtLbl.TextSize               = 10
+            txtLbl.Font                   = Enum.Font.Gotham
+            txtLbl.TextXAlignment         = Enum.TextXAlignment.Right
+            txtLbl.TextTruncate           = Enum.TextTruncate.AtEnd
+            txtLbl.Parent                 = row
+        end
+
+        -- Click label hint
+        local clickHint = Instance.new("TextLabel")
+        clickHint.Text                   = "tap to click"
+        clickHint.Size                   = UDim2.new(1, -10, 0, 12)
+        clickHint.Position               = UDim2.new(0, 10, 0, 34)
+        clickHint.BackgroundTransparency = 1
+        clickHint.TextColor3             = Color3.fromRGB(255, 100, 200)
+        clickHint.TextSize               = 9
+        clickHint.Font                   = Enum.Font.Gotham
+        clickHint.TextXAlignment         = Enum.TextXAlignment.Left
+        clickHint.Parent                 = row
+
+        -- Tap the row → fire the element
+        row.MouseButton1Click:Connect(function()
+            local fired = FireElement(entry.instance)
+            StatusLbl.Text = fired
+                and ("  clicked: " .. entry.name)
+                or  ("  no click method for: " .. entry.name)
+        end)
+    end
+end
+
+local SearchBtn = CreateActionButton(
+    "Search PlayerGui",
+    Color3.fromRGB(30, 20, 50),
+    Color3.fromRGB(80, 60, 110)
+)
+SearchBtn.MouseButton1Click:Connect(function()
+    local count = RunSearch(SearchBox.Text)
+    if count then
+        StatusLbl.Text = "  " .. count .. " result" .. (count == 1 and "" or "s")
+            .. " (" .. PersistState.FilterMode .. ") for: " .. SearchBox.Text
+        BuildResultRows(lastResults)
+    else
+        StatusLbl.Text = "  type a name first"
+    end
+end)
+
+-- ─── AUTO-CLICK SECTION ──────────────────────────────────────
+CreateSection("  AUTO-CLICK")
+
+-- Delay input
+local DelayBox = Instance.new("TextBox")
+DelayBox.Size              = UDim2.new(0, 255, 0, 36)
+DelayBox.BackgroundColor3  = Color3.fromRGB(18, 18, 18)
+DelayBox.BorderSizePixel   = 0
+DelayBox.PlaceholderText   = "click delay in seconds (default 1.5)"
+DelayBox.PlaceholderColor3 = Color3.fromRGB(75, 75, 75)
+DelayBox.TextColor3        = Color3.fromRGB(210, 210, 210)
+DelayBox.TextSize          = 12
+DelayBox.Font              = Enum.Font.Gotham
+DelayBox.ClearTextOnFocus  = false
+DelayBox.Text              = tostring(PersistState.ClickDelay)
+DelayBox.Parent            = ContentFrame
+Instance.new("UICorner", DelayBox).CornerRadius = UDim.new(0, 10)
+local DelayStroke = Instance.new("UIStroke")
+DelayStroke.Color  = Color3.fromRGB(50, 50, 50)
+DelayStroke.Parent = DelayBox
+
+DelayBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local v = tonumber(DelayBox.Text)
+    if v then PersistState.ClickDelay = math.clamp(v, 0.05, 30) end
+end)
+
+-- Continuous auto-click: loops results, re-searches when exhausted
+local autoRunning = false
+
+local AutoBtn, AutoLbl = CreateActionButton(
+    "Continuous Click: OFF",
+    Color3.fromRGB(20, 30, 45),
+    Color3.fromRGB(40, 80, 120),
+    Color3.fromRGB(100, 180, 255)
+)
+
+AutoBtn.MouseButton1Click:Connect(function()
+    if autoRunning then
+        autoRunning = false
+        AutoLbl.Text       = "Continuous Click: OFF"
+        AutoLbl.TextColor3 = Color3.fromRGB(100, 180, 255)
+        StatusLbl.Text     = "  auto-click stopped"
+        return
+    end
+
+    local query = SearchBox.Text
+    if query == "" then
+        StatusLbl.Text = "  type a name first"
+        return
+    end
+
+    autoRunning        = true
+    AutoLbl.Text       = "Continuous Click: ON  ◼ stop"
+    AutoLbl.TextColor3 = Color3.fromRGB(255, 100, 100)
+
+    task.spawn(function()
+        while autoRunning do
+            -- Fresh search every cycle so newly spawned UI elements are caught
+            local count = RunSearch(query)
+            BuildResultRows(lastResults)
+
+            if not count or count == 0 then
+                StatusLbl.Text = "  no results, retrying..."
+                task.wait(PersistState.ClickDelay)
+            else
+                for i, entry in ipairs(lastResults) do
+                    if not autoRunning then break end
+
+                    local inst = entry.instance
+                    if inst and inst.Parent then
+                        local fired = FireElement(inst)
+                        StatusLbl.Text = "  [" .. i .. "/" .. count .. "] "
+                            .. (fired and "" or "(no method) ")
+                            .. entry.name
+                    end
+
+                    task.wait(PersistState.ClickDelay)
+                end
+            end
+        end
+
+        AutoLbl.Text       = "Continuous Click: OFF"
+        AutoLbl.TextColor3 = Color3.fromRGB(100, 180, 255)
+    end)
+end)
+
+-- Click all once (single pass, no loop)
+local ClickAllBtn, ClickAllLbl = CreateActionButton(
+    "Click All Results Once",
+    Color3.fromRGB(25, 25, 15),
+    Color3.fromRGB(80, 80, 30),
+    Color3.fromRGB(220, 220, 80)
+)
+ClickAllBtn.MouseButton1Click:Connect(function()
+    if #lastResults == 0 then
+        StatusLbl.Text = "  no results — search first"
+        return
+    end
+    local fired = 0
+    for _, entry in ipairs(lastResults) do
+        if entry.instance and entry.instance.Parent then
+            if FireElement(entry.instance) then fired = fired + 1 end
+        end
+    end
+    StatusLbl.Text = "  clicked " .. fired .. "/" .. #lastResults .. " elements"
+end)
+
+-- ─── TOOLS ───────────────────────────────────────────────────
+CreateSection("  TOOLS")
+
+local ClearHLBtn, ClearHLLbl = CreateActionButton(
+    "Clear Highlights",
+    Color3.fromRGB(30, 12, 12),
+    Color3.fromRGB(80, 40, 40),
+    Color3.fromRGB(220, 100, 100)
+)
+ClearHLBtn.MouseButton1Click:Connect(function()
+    ClearHighlights()
+    StatusLbl.Text = "  highlights cleared"
+end)
+
+-- Count all GUI elements in PlayerGui
+local CountBtn = CreateActionButton("Count PlayerGui Elements")
+CountBtn.MouseButton1Click:Connect(function()
+    local btns, labels, frames, images, total = 0, 0, 0, 0, 0
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then StatusLbl.Text = "  no PlayerGui" return end
+    for _, inst in ipairs(pg:GetDescendants()) do
+        total = total + 1
+        if inst:IsA("TextButton") or inst:IsA("ImageButton") then btns   = btns   + 1
+        elseif inst:IsA("TextLabel")   then labels = labels + 1
+        elseif inst:IsA("Frame")       then frames = frames + 1
+        elseif inst:IsA("ImageLabel")  then images = images + 1
+        end
+    end
+    StatusLbl.Text = string.format("  Btns:%d  Lbls:%d  Frames:%d  Imgs:%d  Total:%d",
+        btns, labels, frames, images, total)
+end)
+
+-- ─── BACK TO MENU ────────────────────────────────────────────
+local BackBtn, BackLbl = CreateActionButton(
+    "← Back to Menu",
+    Color3.fromRGB(20, 15, 35),
+    Color3.fromRGB(80, 60, 110),
+    Color3.fromRGB(180, 150, 220)
+)
+BackBtn.MouseButton1Click:Connect(function()
+    autoRunning = false
+    ClearHighlights()
+    ScreenGui:Destroy()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/jebnnna/roblox_cs/main/Menu.txt"))()
+end)
+
+-- ─── DRAG ────────────────────────────────────────────────────
+local dragging, dragInput, dragStart, startPos
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging  = true
+        dragStart = input.Position
+        startPos  = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+TitleBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- ─── MINIMIZE ────────────────────────────────────────────────
+local minimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    local targetSize = minimized and UDim2.new(0, 280, 0, 48) or UDim2.new(0, 280, 0, 620)
+    TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Size = targetSize}):Play()
+    MinBtn.Text          = minimized and "+" or "—"
+    ContentFrame.Visible = not minimized
+end)
+
+-- ─── DEATH PERSISTENCE ───────────────────────────────────────
+-- UiScanner doesn't depend on character, but stop auto-click on death
+-- and resume after respawn so it doesn't click on a stale list
+local wasAutoRunning = false
+
+LocalPlayer.CharacterAdded:Connect(function()
+    if autoRunning then
+        wasAutoRunning = true
+        autoRunning    = false
+    end
+    task.delay(1, function()
+        if wasAutoRunning then
+            wasAutoRunning = false
+            -- Re-trigger the auto-click button as if pressed
+            AutoBtn.MouseButton1Click:Fire()
+        end
+    end)
+end)
